@@ -386,3 +386,14 @@ mark.kw { background: color-mix(in srgb, var(--accent) 20%, transparent); color:
 @media (min-width: 900px) { .selbar { bottom: 28px; } }
 .toast-action { margin-left: 14px; min-height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--on-ink) 40%, transparent); background: transparent; color: var(--on-ink); font-weight: 600; }
 .toast-action:hover { background: color-mix(in srgb, var(--on-ink) 14%, transparent); }
+
+/* bloques del libro: definiciones y pasos */
+.defs { margin: 1.2em 0; padding: 12px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font: .92em/1.55 var(--sans); }
+.defs dt { font-weight: 600; color: var(--text); margin-top: .7em; }
+.defs dt:first-child { margin-top: 0; }
+.defs dd { margin: .1em 0 0; color: var(--text2); }
+.steps { margin: 1.2em 0; font: .95em/1.6 var(--sans); }
+.steps h3 { margin: 0 0 .5em; font-size: 1em; color: var(--text); }
+.steps ol { margin: 0; padding-left: 1.5em; display: flex; flex-direction: column; gap: .45em; }
+.steps li::marker { color: var(--accent-text); font-weight: 700; }
+.reader.paged .defs, .reader.paged .steps { break-inside: avoid-column; }

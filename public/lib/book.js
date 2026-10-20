@@ -8,6 +8,99 @@ const str = { type: 'string' };
 const list = { type: 'array', items: str };
 const SYS = 'Eres un autor de libros de estudio claros, ordenados y didácticos. Explicas con palabras sencillas, en prosa, y eres fiel al material: no inventas datos, cifras ni citas.';
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+
+/* ───────── lectura fácil: medir, simplificar y detectar cómo está escrito el material ───────── */
+
+// Sílabas (aprox. para español): vocales juntas cuentan una, salvo hiatos (a-e-o entre sí o i/u tónicas).
+const STRONG = 'aeoáéó', ACC_WEAK = 'íú';
+function syllables(word) {
+  const groups = word.toLowerCase().match(/[aeiouáéíóúü]+/g) || [];
+  return Math.max(1, groups.reduce((n, g) => {
+    let k = 1;
+    for (let i = 1; i < g.length; i++) if ((STRONG.includes(g[i - 1]) && STRONG.includes(g[i])) || ACC_WEAK.includes(g[i - 1]) || ACC_WEAK.includes(g[i])) k++;
+    return n + k;
+  }, 0));
+}
+// Índice de Fernández Huerta (0–100; más alto = más fácil).
+export function readability(text) {
+  const t = String(text || '');
+  const ws = t.match(/[\p{L}]+/gu) || [];
+  const sents = (t.match(/[^.!?…]+[.!?…]+/g) || [t]).filter((x) => /\p{L}/u.test(x));
+  if (ws.length < 8) return { score: 100, label: 'muy fácil' };
+  const syl = ws.reduce((n, w) => n + syllables(w), 0);
+  const score = Math.max(0, Math.min(100, Math.round(206.84 - 60 * (syl / ws.length) - 1.02 * (ws.length / Math.max(1, sents.length)))));
+  const label = score >= 80 ? 'muy fácil' : score >= 70 ? 'fácil' : score >= 60 ? 'normal' : score >= 50 ? 'algo difícil' : 'difícil';
+  return { score, label };
+}
+
+// Simplificación sin IA: quita muletillas, cambia palabras rebuscadas por comunes y parte frases largas.
+const SWAPS = [
+  [/\b(es importante (destacar|mencionar|señalar|resaltar|tener en cuenta) que|cabe (destacar|mencionar|señalar|resaltar) que|vale la pena (mencionar|destacar) que)\s*/gi, ''],
+  [/\ben (conclusión|resumen),\s*/gi, ''],
+  [/\bcon el fin de\b/gi, 'para'], [/\ba fin de\b/gi, 'para'], [/\ben la actualidad\b/gi, 'hoy'],
+  [/\bcon respecto a\b/gi, 'sobre'], [/\bdebido a que\b/gi, 'porque'], [/\bya que\b/gi, 'porque'],
+  [/\bno obstante,?\s*/gi, 'pero '], [/\bsin embargo,?\s*/gi, 'pero '], [/\basimismo,?\s*/gi, 'también '],
+  [/\bes por ello que\b/gi, 'por eso'], [/\bpor lo tanto,?\s*/gi, 'así '], [/\bpor consiguiente,?\s*/gi, 'así '],
+  [/\btiene como objetivo\b/gi, 'busca'], [/\bllevar a cabo\b/gi, 'hacer'], [/\bcon la finalidad de\b/gi, 'para'],
+  [/\bde manera (más )?(eficiente|efectiva)\b/gi, 'bien'], [/\ba través de\b/gi, 'con'],
+  [/\butiliz(a|an|ar|ado|ados|ada|adas|ando|amos|ó)\b/gi, (m, e) => 'us' + e], [/\butilic(e|en)\b/gi, (m, e) => 'us' + e],
+];
+export function plainify(text) {
+  let t = String(text || '');
+  for (const [re, to] of SWAPS) t = t.replace(re, to);
+  t = t.replace(/\s{2,}/g, ' ').replace(/(^|[.!?]\s+)(\p{Ll})/gu, (m, a, c) => a + c.toUpperCase());
+  // frases de más de 28 palabras: se parten en una coma o conector si ambas mitades quedan con cuerpo
+  return t.split(/(?<=[.!?])\s+/).map((sent) => {
+    const n = (sent.match(/\p{L}+/gu) || []).length;
+    if (n <= 28) return sent;
+    const re = /,\s+(?:y|pero|además)\s+|;\s+/gi;
+    let best = null, m;
+    while ((m = re.exec(sent))) {
+      const left = (sent.slice(0, m.index).match(/\p{L}+/gu) || []).length;
+      if (left >= 8 && n - left >= 8 && (!best || Math.abs(left - n / 2) < Math.abs(best.left - n / 2))) best = { left, at: m.index, len: m[0].length, conn: m[0] };
+    }
+    if (!best) return sent;
+    const a = sent.slice(0, best.at).replace(/[,;]$/, '');
+    let b = sent.slice(best.at + best.len);
+    const keep = /^[,;]\s+(pero|además)/i.test(best.conn) ? best.conn.replace(/^[,;]\s+/, '').trim() + ' ' : '';
+    b = keep + b;
+    return `${a}. ${b.charAt(0).toUpperCase()}${b.slice(1)}`;
+  }).join(' ');
+}
+
+// Cómo está escrito el material: pasos, definiciones o listas (para pedirle a la IA la forma correcta).
+export function detectStructure(text) {
+  const t = String(text || '');
+  const lines = t.split(/\n/).map((l) => l.trim());
+  const numbered = lines.filter((l) => /^(\d{1,2}[.)]|paso\s*\d+|[•\-–*])\s+\S/i.test(l)).length;
+  const seq = (t.match(/\b(primero|segundo|tercero|luego|despu[eé]s|finalmente|por [uú]ltimo)\b/gi) || []).length;
+  const defs = lines.filter((l) => /^[\p{Lu}][^.:\n]{1,40}:\s+\S/u.test(l)).length + (t.match(/\b(se define como|se refiere a|consiste en|es la capacidad de|es el proceso de)\b/gi) || []).length;
+  return { steps: numbered >= 2 && /paso|proced|instal|configur|crear|abrir|seguir/i.test(t) || seq >= 3, defs: defs >= 2, list: numbered >= 3 };
+}
+// Pasos y definiciones tal como están en el material (sin IA: no se inventa nada).
+export function extractSteps(text) {
+  const out = [];
+  for (const l of String(text).split(/\n/)) {
+    const m = l.trim().match(/^(?:\d{1,2}[.)]|paso\s*\d+\s*[:.)\-–]?)\s+(.{6,})$/i);
+    if (m) out.push(m[1].trim().replace(/\s+/g, ' '));
+  }
+  return out.length >= 2 ? out.slice(0, 10) : [];
+}
+export function extractTerms(text) {
+  const out = [];
+  for (const l of String(text).split(/\n/)) {
+    const m = l.trim().match(/^(?:[•\-–*]\s*)?(\p{Lu}[^.:\n]{1,40}):\s+(.{8,})$/u);
+    if (m && m[1].trim().split(/\s+/).length <= 5 && !/^\d/.test(m[1])) out.push({ term: m[1].trim(), meaning: m[2].trim().replace(/\s+/g, ' ') });
+  }
+  return out.length >= 2 ? out.slice(0, 8) : [];
+}
+const supportRatio = (sent, source) => {
+  const src = new Set(words(source).map((w) => w.slice(0, 5)));
+  const ws = words(sent).filter((w) => w.length >= 5);
+  return ws.length < 3 ? 1 : ws.filter((w) => src.has(w.slice(0, 5))).length / ws.length;
+};
+const PLAIN = 'Estilo: para alguien que recién empieza. Frases cortas (máximo 20 palabras), palabras cotidianas en vez de rebuscadas, un solo tema por párrafo (2 a 4 frases), explica cada término técnico con una frase corta la primera vez, sin muletillas ("es importante destacar que", "cabe mencionar") y sin repetir ideas ni frases de relleno.';
+
 const hashStr = (t) => { let h = 5381; for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) >>> 0; return h.toString(36); };
 
 /* ───────── limpieza determinista del texto ───────── */
@@ -47,7 +140,7 @@ function filterUnsupported(paragraphs, source) {
 }
 
 // El modelo a veces mete "la idea clave" o "recuerda…" dentro de los párrafos: eso ya va en su propio recuadro.
-const META = /^\s*(la idea (m[aá]s )?(importante|clave|principal)|idea clave|recuerda|para recordar|puntos clave|en resumen,? (los )?puntos)/i;
+const META = /^\s*(la idea (m[aá]s )?(importante|clave|principal)|idea clave|recuerda|para recordar|puntos clave|en resumen,? (los )?puntos|key ?idea|remember|steps|terms|lead|heading|paragraphs)\s*([:：]|\b)/i;
 const noMeta = (paras) => { const out = paras.filter((p) => !META.test(p)); return out.length ? out : paras; };
 
 // Un título de diapositiva o apunte: primera línea corta, sin punto final, con más texto debajo.
@@ -62,7 +155,7 @@ const targetParas = (len) => Math.max(1, Math.min(6, Math.ceil(len / 300)));
 function dedupeSentences(paragraphs) {
   const kept = [];
   const out = paragraphs.map((p) => p.split(/(?<=[.!?])\s+/).filter((t) => {
-    if (kept.some((k) => jaccard(k, t) >= 0.7)) return false;
+    if (kept.some((k) => jaccard(k, t) >= 0.6)) return false;
     kept.push(t);
     return true;
   }).join(' ')).filter((p) => p.trim().length > 1);
@@ -292,7 +385,7 @@ export async function orderCourse(course, { signal, onProgress, model } = {}) {
 
 const CHAPTER = {
   type: 'object',
-  properties: { heading: str, lead: str, paragraphs: list, keyIdea: str, remember: list },
+  properties: { heading: str, lead: str, paragraphs: list, keyIdea: str, remember: list, steps: list, terms: { type: 'array', items: { type: 'object', properties: { term: str, meaning: str }, required: ['term', 'meaning'] } } },
   required: ['heading', 'paragraphs'],
 };
 const REVISE = { type: 'object', properties: { paragraphs: list }, required: ['paragraphs'] };
@@ -309,7 +402,7 @@ function splitParts(text, size = 2300) {
   return out;
 }
 
-export async function makeBook(mod, { lang = 'es', style = 'explained', model, verify = true, onProgress, signal } = {}) {
+export async function makeBook(mod, { lang = 'es', style = 'explained', level = 'simple', model, verify = true, onProgress, signal } = {}) {
   const explained = style === 'explained';
   const langRule = lang === 'es'
     ? 'Escribe en español neutro; si el material está en otro idioma, tradúcelo y conserva en inglés los términos técnicos.'
@@ -336,25 +429,28 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
   for (let gi = 0; gi < groups.length; gi++) {
     const g = groups[gi];
     // si este tema no cambió desde la última vez, se reutiliza el capítulo ya escrito
-    const ckey = hashStr([style, lang, verify ? 1 : 0, model || '', g.text].join('|'));
+    const ckey = hashStr([style, lang, level, verify ? 1 : 0, model || '', g.text].join('|'));
     if (mod.cache?.[ckey]) { chapters.push(mod.cache[ckey]); cacheNew[ckey] = mod.cache[ckey]; onProgress?.(`Capítulo ${gi + 1} sin cambios`, base + ((gi + 1) / groups.length) * (0.9 - base)); continue; }
     const parts = splitParts(g.text);
     const given = headingOf(g.text);
     let heading = given || g.title, lead = '', keyIdea = '';
     let capTotal = 0;
-    let paragraphs = [], remember = [];
+    let paragraphs = [], remember = [], steps = [], terms = [];
     let failed = false;
     for (let pi = 0; pi < parts.length; pi++) {
       onProgress?.(`Escribiendo el capítulo ${gi + 1} de ${groups.length}${parts.length > 1 ? ` (parte ${pi + 1})` : ''}`, base + ((gi + pi / parts.length) / groups.length) * (0.9 - base));
       let res = null;
       const hi = targetParas(parts[pi].length), lo = Math.max(1, hi - 1);
       capTotal += hi + 1;
+      const st = detectStructure(parts[pi]);
+      const struct = (st.steps ? '\n- steps: el procedimiento del material como pasos cortos, cada uno empezando con un verbo (si no hay procedimiento, deja la lista vacía)' : '') + (st.defs ? '\n- terms: los términos que el material define, cada uno con term y meaning (una frase corta)' : '');
+      const plain = level === 'simple' ? PLAIN + '\n' : '';
       for (let attempt = 0; attempt < 2; attempt++) {
       try {
         res = await chatJSON({
           signal, model, schema: CHAPTER, temperature: attempt ? 0.55 : 0.3, system: SYS,
           user: explained
-            ? `Material fuente (apuntes o texto leído de capturas; puede tener errores de lectura, líneas cortadas y restos de interfaz):\n"""\n${parts[pi]}\n"""\n\nEscríbelo como ${pi ? `la continuación del capítulo «${heading}»` : 'un capítulo de libro didáctico'}, bien ordenado y explicado:\n- heading: título claro del capítulo${g.title ? ` (sugerido: «${g.title}»)` : ''}\n- lead: 1 o 2 oraciones que presentan de qué trata\n- paragraphs: de ${lo} a ${hi} párrafos que expliquen el contenido paso a paso, en orden lógico y con tus palabras. El material es ${parts[pi].length < 700 ? 'corto' : 'extenso'}: no rellenes ni repitas ideas. Define cada término al introducirlo y explica el porqué. No copies el texto tal cual ni lo dejes en lista. No numeres los párrafos. Corrige errores de lectura y ortografía.\n- keyIdea: la idea más importante en una oración\n- remember: 3 puntos breves para recordar\nUsa solo la información del material. Si el material no trae un ejemplo, no pongas ninguno; no inventes datos, cifras, personas ni casos.\n${langRule}`
+            ? `Material fuente (apuntes o texto leído de capturas; puede tener errores de lectura, líneas cortadas y restos de interfaz):\n"""\n${parts[pi]}\n"""\n\nEscríbelo como ${pi ? `la continuación del capítulo «${heading}»` : 'un capítulo de libro didáctico'}, bien ordenado y explicado:\n- heading: título claro del capítulo${g.title ? ` (sugerido: «${g.title}»)` : ''}\n- lead: 1 o 2 oraciones que presentan de qué trata\n- paragraphs: de ${lo} a ${hi} párrafos que expliquen el contenido paso a paso, en orden lógico y con tus palabras. El material es ${parts[pi].length < 700 ? 'corto' : 'extenso'}: no rellenes ni repitas ideas. Define cada término al introducirlo y explica el porqué. No copies el texto tal cual ni lo dejes en lista. No numeres los párrafos. Corrige errores de lectura y ortografía.\n- keyIdea: la idea más importante en una oración\n- remember: 3 puntos breves para recordar${struct}\n${plain}Usa solo la información del material. Si el material no trae un ejemplo, no pongas ninguno; no inventes datos, cifras, personas ni casos.\n${langRule}`
             : `Texto leído de capturas o de un documento (puede tener errores de lectura, líneas cortadas y restos de interfaz):\n"""\n${parts[pi]}\n"""\n\nConviértelo en un fragmento de libro listo para leer:\n- heading: título corto\n- paragraphs: TODO el contenido reescrito en párrafos fluidos, en orden lógico. Corrige errores de lectura y ortografía, une las líneas cortadas y elimina restos de interfaz. Conserva todos los datos y definiciones.\n${langRule}`,
         });
       } catch (e) { if (e.name === 'AbortError') throw e; }
@@ -364,7 +460,11 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
       if (paras.length && paras.join(' ').length >= parts[pi].length * (explained ? 0.3 : 0.4)) {
         if (!pi) { heading = given || polish(res.heading) || heading; lead = explained ? polish(res.lead) : ''; keyIdea = explained ? polish(res.keyIdea) : ''; }
         paragraphs.push(...paras);
-        if (explained) remember.push(...polishAll(res.remember));
+        if (explained) {
+          remember.push(...polishAll(res.remember));
+          steps.push(...polishAll(res.steps).filter((x) => supportRatio(x, parts[pi]) >= 0.4));
+          terms.push(...(res.terms || []).map((t) => ({ term: polish(t.term), meaning: polish(t.meaning) })).filter((t) => t.term && t.meaning && (parts[pi].toLowerCase().includes(t.term.toLowerCase()) || supportRatio(t.term + ' ' + t.meaning, parts[pi]) >= 0.5)));
+        }
       } else { failed = true; paragraphs.push(...polishAll(parts[pi].split(/\n{2,}/)).filter((p) => p !== heading)); }
     }
     // 3) revisión de fidelidad: quitar lo que el material no respalda
@@ -380,10 +480,33 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
       } catch (e) { if (e.name === 'AbortError') throw e; }
     }
     if (!failed) paragraphs = splitLong(dedupeSentences(filterUnsupported(noMeta(paragraphs), g.text))).slice(0, capTotal + 2);
+    // el título no se repite dentro del primer párrafo
+    if (heading) paragraphs = paragraphs.map((x, i) => (i === 0 && x.toLowerCase().startsWith(heading.toLowerCase()) ? x.slice(heading.length).replace(/^[\s:.\-–—]+/, '') : x)).filter((x) => x.length > 1);
+    if (!failed && level === 'simple') {
+      paragraphs = splitLong(paragraphs.map(plainify));
+      const before = readability(paragraphs.join(' '));
+      if (before.score < 58 && paragraphs.join(' ').length > 500) {
+        onProgress?.(`Haciendo más sencillo el capítulo ${gi + 1}`, base + ((gi + 0.95) / groups.length) * (0.9 - base));
+        try {
+          const sv = await chatJSON({
+            signal, model, schema: REVISE, temperature: 0.2, system: SYS,
+            user: `Párrafos de un libro de estudio:\n${paragraphs.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nReescríbelos en lenguaje sencillo, para alguien que recién empieza: frases de máximo 18 palabras, palabras cotidianas, un tema por párrafo. Conserva exactamente los mismos datos y términos técnicos (explicando cada término con una frase corta la primera vez). No agregues información nueva. Devuelve paragraphs con todos los párrafos.`,
+          });
+          const sp = splitLong(polishAll(sv.paragraphs).map(plainify));
+          if (sp.length && sp.join(' ').length >= paragraphs.join(' ').length * 0.6 && readability(sp.join(' ')).score > before.score) paragraphs = dedupeSentences(sp).slice(0, capTotal + 1);
+        } catch (e) { if (e.name === 'AbortError') throw e; }
+      }
+    }
     if (failed) fallbacks++;
+    const dSteps = extractSteps(g.text), dTerms = extractTerms(g.text);
+    if (dSteps.length) steps = dSteps;
+    if (dTerms.length) terms = dTerms;
+    const uniq = (arr, key) => { const seen = new Set(); return arr.filter((x) => { const k = key(x).toLowerCase(); return k && !seen.has(k) && seen.add(k); }); };
     const chapterObj = {
       heading: heading || `Capítulo ${gi + 1}`, lead, paragraphs, keyIdea,
       remember: [...new Set(remember)].slice(0, 4), original: failed || undefined,
+      steps: uniq(steps, (x) => x).slice(0, 8), terms: uniq(terms, (t) => t.term).slice(0, 6),
+      score: readability(paragraphs.join(' ')).score,
     };
     chapters.push(chapterObj);
     if (!failed) cacheNew[ckey] = chapterObj;
@@ -401,7 +524,8 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
   }
   const takeaways = chapters.map((c) => c.keyIdea).filter(Boolean);
   mod.cache = cacheNew;
-  mod.book = { style, lang, title: title || mod.title, subtitle, preface, chapters, takeaways, at: Date.now(), truncated: truncatedFrom, fallbacks, ordered: mod.plan ? { method: mod.plan.method, changed: mod.plan.changed } : null, model: model || null };
+  const allText = chapters.flatMap((c) => c.paragraphs).join(' ');
+  mod.book = { level, readability: readability(allText), style, lang, title: title || mod.title, subtitle, preface, chapters, takeaways, at: Date.now(), truncated: truncatedFrom, fallbacks, ordered: mod.plan ? { method: mod.plan.method, changed: mod.plan.changed } : null, model: model || null };
   save();
   logAct();
   return mod.book;
@@ -410,5 +534,5 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
 export function bookMarkdown(m) {
   const b = m.book;
   const part = (arr) => (arr?.length ? arr.join('\n\n') + '\n\n' : '');
-  return `# ${b.title}\n\n${b.subtitle ? `*${b.subtitle}*\n\n` : ''}${b.preface?.length ? `## Introducción\n\n${part(b.preface)}` : ''}${b.chapters.map((c, i) => `## Capítulo ${i + 1}. ${c.heading}\n\n${c.lead ? `*${c.lead}*\n\n` : ''}${part(c.paragraphs)}${c.keyIdea ? `> **Idea clave:** ${c.keyIdea}\n\n` : ''}${c.remember?.length ? `**Para recordar**\n\n${c.remember.map((r) => `- ${r}`).join('\n')}\n\n` : ''}`).join('')}${b.takeaways?.length ? `## Para cerrar\n\nLo esencial, capítulo por capítulo:\n\n${b.takeaways.map((t) => `- ${t}`).join('\n')}\n` : ''}`;
+  return `# ${b.title}\n\n${b.subtitle ? `*${b.subtitle}*\n\n` : ''}${b.preface?.length ? `## Introducción\n\n${part(b.preface)}` : ''}${b.chapters.map((c, i) => `## Capítulo ${i + 1}. ${c.heading}\n\n${c.lead ? `*${c.lead}*\n\n` : ''}${part(c.paragraphs)}${c.terms?.length ? c.terms.map((t) => `- **${t.term}**: ${t.meaning}`).join('\n') + '\n\n' : ''}${c.steps?.length ? '**Paso a paso**\n\n' + c.steps.map((x, i) => `${i + 1}. ${x}`).join('\n') + '\n\n' : ''}${c.keyIdea ? `> **Idea clave:** ${c.keyIdea}\n\n` : ''}${c.remember?.length ? `**Para recordar**\n\n${c.remember.map((r) => `- ${r}`).join('\n')}\n\n` : ''}`).join('')}${b.takeaways?.length ? `## Para cerrar\n\nLo esencial, capítulo por capítulo:\n\n${b.takeaways.map((t) => `- ${t}`).join('\n')}\n` : ''}`;
 }

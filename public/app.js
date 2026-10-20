@@ -9,7 +9,7 @@ import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, a
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 import { openReader, docFromSheet, docFromBook } from './lib/reader.js';
 
-const APP_VERSION = '1.5.0'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.6.0'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -497,7 +497,7 @@ function openImport({ courseId, modId } = {}) {
       const m = findMod(findCourseOf(modId), modId);
       if (m && (ollama.ready() || (await ollama.refresh()).ok)) {
         await orderMany([m], null, false);
-        const ok = await bookMany([m], { style: m.book?.style || 'explained', lang: m.book?.lang || 'es', model: m.book?.model || undefined, verify: true }, findCourse(findCourseOf(modId)));
+        const ok = await bookMany([m], { style: m.book?.style || 'explained', lang: m.book?.lang || 'es', level: m.book?.level || 'simple', model: m.book?.model || undefined, verify: true }, findCourse(findCourseOf(modId)));
         go(`#/mod/${findCourseOf(modId)}/${modId}/libro`);
         render();
         if (ok) toast('Libro reorganizado con las fotos nuevas');
@@ -579,25 +579,38 @@ async function bookMany(mods, opts, course) {
 }
 
 function openBookDialog(c, m, beforeCreate) {
+  const regen = !!m.book;
+  const prev = m.book || {};
   const style = h('select', { 'aria-label': 'Estilo del libro' },
-    h('option', { value: 'explained' }, 'Explicado: capítulos, ejemplos e ideas clave (recomendado)'),
-    h('option', { value: 'faithful' }, 'Fiel: solo ordenar y redactar lo que dicen mis apuntes'));
-  const lang = h('select', { 'aria-label': 'Idioma' }, h('option', { value: 'es' }, 'En español (términos técnicos en inglés)'), h('option', { value: 'orig' }, 'En el idioma original'));
+    h('option', { value: 'explained', selected: prev.style !== 'faithful' }, 'Explicado: capítulos, ejemplos e ideas clave (recomendado)'),
+    h('option', { value: 'faithful', selected: prev.style === 'faithful' }, 'Fiel: solo ordenar y redactar lo que dicen mis apuntes'));
+  const lang = h('select', { 'aria-label': 'Idioma' }, h('option', { value: 'es', selected: prev.lang !== 'orig' }, 'En español (términos técnicos en inglés)'), h('option', { value: 'orig', selected: prev.lang === 'orig' }, 'En el idioma original'));
   const models = ollama.status.models;
   const biggest = [...models].sort((a, b) => b.size - a.size)[0];
-  const model = h('select', { 'aria-label': 'Modelo de IA' }, models.map((x) => h('option', { value: x.name, selected: x.name === S.settings.model }, `${x.name} · ${bytes(x.size)}${x.name === biggest?.name && models.length > 1 ? ' · mejor redacción, más lento' : ''}`)));
+  const chosen = prev.model && models.some((x) => x.name === prev.model) ? prev.model : S.settings.model;
+  const model = h('select', { 'aria-label': 'Modelo de IA' }, models.map((x) => h('option', { value: x.name, selected: x.name === chosen }, `${x.name} · ${bytes(x.size)}${x.name === biggest?.name && models.length > 1 ? ' · mejor redacción, más lento' : ''}`)));
   const verify = h('input', { type: 'checkbox', checked: true });
-  openModal('Crear libro con IA', h('div', { class: 'stack' },
-    h('p', { class: 'small muted' }, 'La IA entiende de qué trata cada fragmento, los agrupa por tema, decide el orden lógico (aunque las capturas lleguen desordenadas), escribe un capítulo por tema y lo revisa contra tu material. Puedes cancelar.'),
-    h('label', { class: 'field' }, 'Estilo', style), h('label', { class: 'field' }, 'Idioma', lang),
+  const fresh = h('input', { type: 'checkbox', checked: true });
+  const reorder = h('input', { type: 'checkbox', checked: true });
+  const level = h('select', { 'aria-label': 'Nivel de lectura' },
+    h('option', { value: 'simple', selected: prev.level !== 'tecnico' }, 'Sencillo: frases cortas y palabras de todos los días (recomendado)'),
+    h('option', { value: 'tecnico', selected: prev.level === 'tecnico' }, 'Técnico: más cercano al lenguaje del material'));
+  openModal(regen ? 'Regenerar el libro' : 'Crear libro con IA', h('div', { class: 'stack' },
+    h('p', { class: 'small muted' }, regen
+      ? 'Vuelve a escribir el libro con lo que elijas. Si lo dejas marcado, todos los capítulos se escriben de nuevo en vez de reutilizar los anteriores.'
+      : 'La IA entiende de qué trata cada fragmento, los agrupa por tema, decide el orden lógico (aunque las capturas lleguen desordenadas), escribe un capítulo por tema y lo revisa contra tu material. Puedes cancelar.'),
+    h('label', { class: 'field' }, 'Estilo', style), h('label', { class: 'field' }, 'Nivel de lectura', level), h('label', { class: 'field' }, 'Idioma', lang),
     models.length > 0 && h('label', { class: 'field' }, 'Modelo', model),
     h('label', { class: 'check' }, verify, 'Revisar cada capítulo contra mi material (más lento, más fiel)'),
+    regen && h('label', { class: 'check' }, fresh, 'Escribir todos los capítulos de nuevo (ignorar lo ya escrito)'),
+    regen && m.frags?.length > 1 && h('label', { class: 'check' }, reorder, 'Volver a ordenar los temas por su contenido'),
     h('button', { class: 'btn primary block', onclick: async () => {
       closeModal();
-      if (m.frags?.length > 1) m.plan = null; // se vuelve a ordenar con lo último que dicen los apuntes
+      if (regen && fresh.checked) m.cache = {};
+      if (m.frags?.length > 1 && (!regen || reorder.checked)) m.plan = null; // se vuelve a ordenar con lo último que dicen los apuntes
       beforeCreate?.();
-      if (await bookMany([m], { style: style.value, lang: lang.value, model: model.value || undefined, verify: verify.checked }, c)) { go(`#/mod/${c.id}/${m.id}/libro`); render(); }
-    } }, icon('book'), 'Crear libro')));
+      if (await bookMany([m], { style: style.value, lang: lang.value, level: level.value, model: model.value || undefined, verify: verify.checked }, c)) { go(`#/mod/${c.id}/${m.id}/libro`); render(); }
+    } }, icon(regen ? 'refresh' : 'book'), regen ? 'Regenerar libro' : 'Crear libro')));
 }
 
 function tabLibro(c, m) {
@@ -613,14 +626,15 @@ function tabLibro(c, m) {
   return h('div', { class: 'stack' },
     h('button', { class: 'btn primary block', onclick: () => openReader(m, 'libro') }, icon('book'), 'Leer como libro en pantalla completa'),
     h('button', { class: 'btn', style: 'align-self:flex-start', onclick: () => openImport({ modId: m.id }) }, icon('upload'), 'Agregar más fotos o archivos'),
+    b.readability && h('div', { class: 'row wrap small' }, h('span', { class: 'chip ' + (b.readability.score >= 60 ? 'hit' : 'miss') }, `Lectura ${b.readability.label} · ${b.readability.score}/100`), b.level === 'simple' && h('span', { class: 'muted' }, 'Frases cortas y palabras sencillas')),
     m.plan && h('div', { class: 'note' }, h('div', { class: 'k' }, 'ORDENADO POR CONTENIDO'), `La IA leyó ${plural(m.frags?.length || 0, 'fragmento', 'fragmentos')}, entendió de qué trata cada uno y los acomodó en ${plural(m.plan.groups.length, 'tema', 'temas')} en orden lógico${m.plan.changed ? '; el orden final no es el de las capturas' : ''}.`),
     b.truncated > 0 && h('div', { class: 'callout small' }, `El texto era largo: se escribieron los primeros ${b.chapters.length} capítulos de ${b.truncated} partes. Divide el documento en módulos más cortos para cubrirlo todo.`),
-    b.fallbacks > 0 && h('div', { class: 'callout small' }, `${plural(b.fallbacks, 'capítulo conserva', 'capítulos conservan')} el texto original porque la IA no logró reescribirlo bien. Prueba "Volver a escribir".`),
+    b.fallbacks > 0 && h('div', { class: 'callout small' }, `${plural(b.fallbacks, 'capítulo conserva', 'capítulos conservan')} el texto original porque la IA no logró reescribirlo bien. Prueba "Regenerar libro".`),
     h('div', { class: 'sheet-card book-preview' }, h('div', { class: 'reader-doc book' }, d.nodes)),
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn', onclick: () => copy(bookMarkdown(m)) }, 'Copiar libro'),
       h('button', { class: 'btn', onclick: () => download(m.title.replace(/[\\/:*?"<>|]+/g, '-') + ' (libro).md', bookMarkdown(m), 'text/markdown') }, icon('download'), 'Descargar .md'),
-      h('button', { class: 'btn', onclick: () => openBookDialog(c, m) }, icon('refresh'), 'Volver a escribir')),
+      h('button', { class: 'btn primary', onclick: () => openBookDialog(c, m) }, icon('refresh'), 'Regenerar libro')),
     h('p', { class: 'small muted' }, `Escrito el ${fmtDate(b.at)} con ${S.settings.model || 'IA local'} · ${plural(b.chapters.length, 'capítulo', 'capítulos')}`));
 }
 

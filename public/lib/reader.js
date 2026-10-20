@@ -58,6 +58,8 @@ export function docFromBook(m, jump = defaultJump) {
     toc[toc.length - 1].anchor = num;
     if (c.lead) nodes.push(h('p', { class: 'lead' }, ...highlight(c.lead, terms)));
     c.paragraphs.forEach((p, k) => nodes.push(h('p', { class: k === 0 && !c.lead ? 'dropcap' : '' }, ...highlight(p, terms))));
+    if (c.terms?.length) nodes.push(h('dl', { class: 'defs' }, c.terms.flatMap((t) => [h('dt', null, t.term), h('dd', null, ...highlight(t.meaning, terms))])));
+    if (c.steps?.length) nodes.push(h('div', { class: 'steps' }, h('h3', null, 'Paso a paso'), h('ol', null, c.steps.map((x) => h('li', null, ...highlight(x, terms))))));
     if (c.keyIdea) nodes.push(h('aside', { class: 'keyidea' }, h('div', { class: 'eyebrow' }, 'Idea clave'), h('p', null, ...highlight(c.keyIdea, terms))));
     if (c.remember?.length) nodes.push(h('div', { class: 'remember' }, h('h3', null, 'Para recordar'), h('ul', { class: 'doc-list' }, c.remember.map((r) => h('li', null, ...highlight(r, terms))))));
     if (c.original) nodes.push(h('p', { class: 'small muted' }, '(Este capítulo conserva el texto original porque la IA no logró reescribirlo bien.)'));
