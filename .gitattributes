@@ -1,1 +1,5 @@
-* -text
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.traineddata binary
+*.zip binary
