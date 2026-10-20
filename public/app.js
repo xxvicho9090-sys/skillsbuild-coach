@@ -8,7 +8,7 @@ import { recognize, stopOCR } from './lib/ocr.js';
 import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards } from './lib/ai.js';
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 
-const APP_VERSION = '1.2.0'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.2.1'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -54,6 +54,18 @@ function applyTheme() {
 
 /* ───────── ayuda de conexión con Ollama ───────── */
 
+// En la web publicada: ¿está corriendo Iniciar-Coach en este PC? Si sí, se ofrece abrir la versión local (que conecta sola con Ollama).
+let localApp = false;
+async function detectLocalApp() {
+  if (ollama.integrated.on || /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)) return;
+  try { localApp = (await (await fetch('http://localhost:5173/__sbc', { signal: AbortSignal.timeout(1500) })).json()).app === 'skillsbuild-coach'; }
+  catch { localApp = false; }
+}
+const localCard = () => !localApp || ollama.ready() ? null : h('div', { class: 'card row between', style: 'border-color:var(--accent)' },
+  h('div', { class: 'grow' }, h('strong', null, 'Tu versión local está lista'), h('div', { class: 'small muted' }, 'Ábrela para usar la IA sin configurar nada. Tus datos de aquí se pasan con Exportar/Importar.')),
+  h('a', { class: 'btn primary', href: 'http://localhost:5173/' }, 'Abrir'));
+
+
 function ollamaHelp() {
   const origin = location.origin;
   const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
@@ -77,6 +89,7 @@ function ollamaHelp() {
     (ollama.status.kind === 'model' || !ollama.status.models.length) && code('Instala el modelo de 2 GB', 'ollama pull qwen2.5:3b'),
     hosted && h('div', { class: 'card stack', style: 'gap:10px' },
       h('strong', null, 'Opción A · Versión local integrada (recomendada)'),
+      localApp && h('div', { class: 'small', style: 'color:var(--ok)' }, '✓ Detecté que ya está corriendo en tu PC.'),
       h('p', { class: 'small muted' }, 'Haz doble clic en «Iniciar-Coach» dentro de la carpeta SkillsBuildCoach de tu PC. Abre esta misma app en tu computador y se conecta a Ollama sin tocar ninguna configuración (incluso inicia Ollama si está apagado).'),
       h('a', { class: 'btn', href: 'http://localhost:5173/', target: '_blank', rel: 'noopener' }, 'Abrir versión local'),
       h('p', { class: 'small muted' }, 'Tus datos de esta web y los de la versión local son independientes: pásalos con Exportar/Importar en Ajustes.')),
@@ -161,7 +174,7 @@ function viewHoy() {
   const date = h('div', { class: 'eyebrow' }, new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' }));
 
   if (!S.courses.length) {
-    return h('div', { class: 'stack' }, head, installCard(), date,
+    return h('div', { class: 'stack' }, head, localCard(), installCard(), date,
       h('h1', null, 'Manda tus apuntes y yo los ordeno.'),
       h('p', { class: 'muted' }, 'Importa los PDF, documentos o textos de tu curso de IBM SkillsBuild. La IA local los convierte en fichas ordenadas, conceptos, quizzes y tarjetas de repaso.'),
       h('div', { class: 'card stack' },
@@ -172,7 +185,7 @@ function viewHoy() {
       !ollama.ready() && h('div', { class: 'callout' }, 'Para ordenar con IA conecta Ollama. ', h('a', { href: '#/ajustes' }, 'Ver cómo')));
   }
 
-  return h('div', { class: 'stack' }, head, installCard(), date,
+  return h('div', { class: 'stack' }, head, localCard(), installCard(), date,
     h('h1', null, due ? 'Hoy toca repasar antes de avanzar.' : 'Estás al día. Avanza con un módulo.'),
     h('div', { class: 'card stack' },
       h('div', { class: 'row', style: 'align-items:baseline' },
@@ -740,6 +753,7 @@ async function setupSW() {
   S.meta.seenVersion = APP_VERSION; save();
   await ollama.detectIntegrated();
   await ollama.refresh();
+  await detectLocalApp();
   render();
   if (!S.meta.lastCheck || Date.now() - S.meta.lastCheck > 6 * 3600e3) checkUpdate();
   setInterval(checkUpdate, 30 * 60e3);

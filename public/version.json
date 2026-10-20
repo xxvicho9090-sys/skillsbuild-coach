@@ -1,7 +1,8 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "date": "2026-10-20",
   "notes": [
+    "La web publicada detecta tu versión local y te ofrece abrirla (sin configurar Ollama).",
     "Modo local integrado: Iniciar-Coach conecta con tu Ollama sin configurar nada (también desde el celular con --lan).",
     "Botón para instalar la app en la pantalla Hoy.",
     "Mensaje de conexión más claro cuando falta el permiso OLLAMA_ORIGINS.",

@@ -64,6 +64,12 @@ function proxy(req, res) {
 }
 
 const server = createServer(async (req, res) => {
+  // Señal de vida para la web publicada: solo dice que la versión local está corriendo (sin datos).
+  if (okHost(req.headers.host) && req.url === '/__sbc') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ app: 'skillsbuild-coach' }));
+    return;
+  }
   // Anti-CSRF y anti-DNS-rebinding: solo este mismo sitio puede usar el puente a Ollama.
   const origin = req.headers.origin;
   const sameOrigin = !origin || (() => { try { return new URL(origin).host === req.headers.host; } catch { return false; } })();
