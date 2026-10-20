@@ -8,7 +8,7 @@ import { recognize, stopOCR } from './lib/ocr.js';
 import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards } from './lib/ai.js';
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 
-const APP_VERSION = '1.1.0'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.2.0'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -57,25 +57,36 @@ function applyTheme() {
 function ollamaHelp() {
   const origin = location.origin;
   const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+  const hosted = !local && !ollama.integrated.on;
   const model = S.settings.model || 'qwen2.5:3b';
-  const codes = [
-    ['1 · Instala el modelo de 2 GB', 'ollama pull qwen2.5:3b'],
-    ...(local ? [] : [['2 · Permite esta web (Windows, PowerShell)', `setx OLLAMA_ORIGINS "${origin}"`], ['   macOS (Terminal)', `launchctl setenv OLLAMA_ORIGINS "${origin}"`]]),
-  ];
   const kindMsg = {
-    down: `No logro conectar con Ollama. Ábrelo (icono en la bandeja) o inícialo con "ollama serve"${local ? '.' : '; si ya está abierto, falta el permiso OLLAMA_ORIGINS (paso 2) y reiniciarlo.'}`,
-    origin: 'Ollama está activo, pero bloquea esta web. Falta el permiso OLLAMA_ORIGINS (paso 2).',
-    model: `Falta el modelo "${model}". Instálalo con el paso 1.`,
+    down: ollama.integrated.on || local
+      ? 'No encuentro Ollama. Ábrelo (icono en la bandeja) o inícialo con "ollama serve".'
+      : 'No logro conectar con Ollama desde esta web. Usa la versión local integrada (opción A) o da el permiso (opción B).',
+    origin: 'Ollama está activo, pero bloquea esta web. Usa la versión local integrada (opción A) o da el permiso (opción B).',
+    model: `Falta el modelo "${model}". Instálalo con el comando de abajo.`,
     http: ollama.status.error,
   }[ollama.status.kind];
+  const code = (t, c) => h('div', { class: 'stack', style: 'gap:8px' },
+    h('div', { class: 'small muted' }, t),
+    h('div', { class: 'row' }, h('code', { class: 'codebox grow' }, c), h('button', { class: 'btn small', onclick: () => copy(c) }, 'Copiar')));
+  const retry = h('button', { class: 'btn primary', onclick: async (e) => { e.target.disabled = true; await ollama.refresh(); e.target.disabled = false; ollama.ready() ? (closeModal(), toast('Conectado a Ollama'), render()) : toast(ollama.status.error || 'Aún sin conexión'); } }, 'Probar conexión');
   return h('div', { class: 'stack' },
     kindMsg && h('div', { class: 'callout' }, kindMsg),
-    ...codes.map(([t, c]) => h('div', { class: 'stack', style: 'gap:8px' },
-      h('div', { class: 'small muted' }, t),
-      h('div', { class: 'row' }, h('code', { class: 'codebox grow' }, c), h('button', { class: 'btn small', onclick: () => copy(c) }, 'Copiar')))),
-    !local && h('p', { class: 'small muted' }, 'Después de cambiar OLLAMA_ORIGINS cierra Ollama por completo (bandeja → Quit) y ábrelo otra vez. Chrome puede pedirte permiso para "acceder a dispositivos de la red local": acéptalo.'),
+    ollama.integrated.on && h('p', { class: 'small muted' }, 'Modo local integrado: la app ya se conecta sola a tu Ollama, sin configurar nada más.'),
+    (ollama.status.kind === 'model' || !ollama.status.models.length) && code('Instala el modelo de 2 GB', 'ollama pull qwen2.5:3b'),
+    hosted && h('div', { class: 'card stack', style: 'gap:10px' },
+      h('strong', null, 'Opción A · Versión local integrada (recomendada)'),
+      h('p', { class: 'small muted' }, 'Haz doble clic en «Iniciar-Coach» dentro de la carpeta SkillsBuildCoach de tu PC. Abre esta misma app en tu computador y se conecta a Ollama sin tocar ninguna configuración (incluso inicia Ollama si está apagado).'),
+      h('a', { class: 'btn', href: 'http://localhost:5173/', target: '_blank', rel: 'noopener' }, 'Abrir versión local'),
+      h('p', { class: 'small muted' }, 'Tus datos de esta web y los de la versión local son independientes: pásalos con Exportar/Importar en Ajustes.')),
+    hosted && h('div', { class: 'card stack', style: 'gap:10px' },
+      h('strong', null, 'Opción B · Permitir esta web en Ollama'),
+      code('Windows (PowerShell)', `setx OLLAMA_ORIGINS "${origin}"`),
+      code('macOS (Terminal)', `launchctl setenv OLLAMA_ORIGINS "${origin}"`),
+      h('p', { class: 'small muted' }, 'Luego cierra Ollama por completo (bandeja → Quit) y ábrelo otra vez. Chrome puede pedir permiso para "acceder a dispositivos de la red local": acéptalo.')),
     h('p', { class: 'small muted' }, 'Todo el procesamiento ocurre en tu computador: tus apuntes no salen de él.'),
-    h('button', { class: 'btn primary', onclick: async (e) => { e.target.disabled = true; await ollama.refresh(); e.target.disabled = false; ollama.ready() ? (closeModal(), toast('Conectado a Ollama'), render()) : toast(ollama.status.error || 'Aún sin conexión'); } }, 'Probar conexión'));
+    retry);
 }
 
 // Devuelve true si la IA está lista; si no, muestra cómo conectarla.
@@ -615,8 +626,8 @@ function viewRepaso() {
 /* ───────── Ajustes ───────── */
 
 function viewAjustes() {
-  const url = h('input', { class: 'input mono', value: S.settings.url, 'aria-label': 'Dirección de Ollama', spellcheck: 'false', autocapitalize: 'off' });
-  const connect = async () => { S.settings.url = url.value.trim() || 'http://localhost:11434'; save(); await ollama.refresh(); toast(ollama.status.ok ? 'Conectado a Ollama' : ollama.status.error); render(); };
+  const url = h('input', { class: 'input mono', value: ollama.integrated.on ? 'Integrado (servidor local)' : S.settings.url, disabled: ollama.integrated.on, 'aria-label': 'Dirección de Ollama', spellcheck: 'false', autocapitalize: 'off' });
+  const connect = async () => { if (!ollama.integrated.on) { S.settings.url = url.value.trim() || 'http://localhost:11434'; save(); } await ollama.refresh(); toast(ollama.status.ok ? 'Conectado a Ollama' : ollama.status.error); render(); };
   url.addEventListener('change', connect);
   const models = ollama.status.models;
   const model = h('select', { 'aria-label': 'Modelo', disabled: !models.length }, models.length ? models.map((x) => h('option', { value: x.name, selected: x.name === S.settings.model }, `${x.name} · ${bytes(x.size)}`)) : [h('option', null, 'Sin modelos (conecta Ollama)')]);
@@ -727,6 +738,7 @@ async function setupSW() {
     fetch('version.json').then((r) => r.json()).then((v) => toast(`Actualizada a v${APP_VERSION}${v.notes?.[0] ? ': ' + v.notes[0] : ''}`)).catch(() => toast('Actualizada a v' + APP_VERSION));
   }
   S.meta.seenVersion = APP_VERSION; save();
+  await ollama.detectIntegrated();
   await ollama.refresh();
   render();
   if (!S.meta.lastCheck || Date.now() - S.meta.lastCheck > 6 * 3600e3) checkUpdate();

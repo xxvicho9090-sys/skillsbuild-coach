@@ -1,5 +1,5 @@
 // SkillsBuild Coach · service worker. CACHE lo actualiza scripts/release.mjs.
-const CACHE = 'sbc-1.1.0';
+const CACHE = 'sbc-1.2.0';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'lib/dom.js', 'lib/store.js', 'lib/ollama.js', 'lib/text.js', 'lib/files.js', 'lib/ai.js', 'lib/srs.js', 'lib/ocr.js'];
 
@@ -26,6 +26,7 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   const isFont = url.hostname === 'fonts.googleapis.com' || url.hostname === 'fonts.gstatic.com';
   if (req.method !== 'GET' || (url.origin !== location.origin && !isFont)) return;
+  if (url.pathname.includes('/ollama/') || url.pathname.endsWith('/ollama')) return; // puente local a Ollama: nunca en caché
   if (url.pathname.endsWith('/version.json')) return; // siempre directo a la red: es lo que detecta las actualizaciones
   e.respondWith(
     fetch(req)

@@ -9,7 +9,16 @@ export class OllamaError extends Error {
   constructor(kind, message) { super(message); this.kind = kind; }
 }
 
-const base = () => S.settings.url.trim().replace(/\/+$/, '');
+// Modo integrado: si la app la sirve scripts/local.mjs, Ollama se alcanza por el mismo origen (/ollama) y no hace falta OLLAMA_ORIGINS.
+export const integrated = { on: false };
+export async function detectIntegrated() {
+  try {
+    const r = await fetch('ollama/api/version', { signal: AbortSignal.timeout(2500) });
+    integrated.on = r.headers.get('x-sbc-local') === '1';
+  } catch { integrated.on = false; }
+  return integrated.on;
+}
+const base = () => (integrated.on ? new URL('ollama', document.baseURI).href.replace(/\/+$/, '') : S.settings.url.trim().replace(/\/+$/, ''));
 
 async function http(path, init) {
   try {
@@ -26,6 +35,7 @@ async function http(path, init) {
 async function failure(res) {
   let msg = '';
   try { msg = (await res.json()).error || ''; } catch { /* sin cuerpo */ }
+  if (res.status === 502) return new OllamaError('down', 'No encuentro Ollama.');
   if (res.status === 403) return new OllamaError('origin', 'Ollama rechazó el origen de esta web (OLLAMA_ORIGINS).');
   if (res.status === 404 || /not found/i.test(msg)) return new OllamaError('model', `El modelo "${S.settings.model}" no está instalado.`);
   return new OllamaError('http', msg || `Ollama respondió ${res.status}.`);

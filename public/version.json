@@ -1,7 +1,8 @@
 {
-  "version": "1.1.0",
+  "version": "1.2.0",
   "date": "2026-10-20",
   "notes": [
+    "Modo local integrado: Iniciar-Coach conecta con tu Ollama sin configurar nada (también desde el celular con --lan).",
     "Botón para instalar la app en la pantalla Hoy.",
     "Mensaje de conexión más claro cuando falta el permiso OLLAMA_ORIGINS.",
     "Primera versión: importa PDF, Word y texto, ordena apuntes con IA local, quizzes y repaso espaciado."
