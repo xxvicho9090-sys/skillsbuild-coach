@@ -8,6 +8,7 @@ const str = { type: 'string' };
 const list = { type: 'array', items: str };
 const SYS = 'Eres un autor de libros de estudio claros, ordenados y didácticos. Explicas con palabras sencillas, en prosa, y eres fiel al material: no inventas datos, cifras ni citas.';
 const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+const hashStr = (t) => { let h = 5381; for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) >>> 0; return h.toString(36); };
 
 /* ───────── limpieza determinista del texto ───────── */
 
@@ -165,7 +166,9 @@ export async function orderModule(mod, { signal, onProgress, model } = {}) {
   const labels = [];
   for (let i = 0; i < frags.length; i++) {
     onProgress?.(`Entendiendo la captura ${i + 1} de ${frags.length}`, (i / frags.length) * 0.7);
-    labels.push(await labelUnit(frags[i], { signal, model }));
+    const sig = frags[i].text.length + ':' + frags[i].text.slice(0, 30);
+    if (!frags[i].label || frags[i].labelSig !== sig) { frags[i].label = await labelUnit(frags[i], { signal, model }); frags[i].labelSig = sig; }
+    labels.push(frags[i].label);
   }
   onProgress?.('Agrupando por tema y ordenando', 0.72);
   // 1) frases cortadas: un fragmento que empieza a mitad de idea se pega al que quedó abierto
@@ -232,6 +235,14 @@ export async function orderModule(mod, { signal, onProgress, model } = {}) {
   } else method = intro.length || outro.length ? 'etapas' : 'original';
   const ordered = [...(intro.length ? [pack(intro)] : []), ...midOrdered, ...(outro.length ? [pack(outro)] : [])];
   const flat = ordered.flatMap((g) => g.ids);
+  // Lo que ya estaba en el libro conserva su orden relativo; las fotos nuevas se acomodan donde corresponde.
+  if (frags.some((f) => f.prior) && frags.some((f) => !f.prior)) {
+    const slots = flat.map((id, k) => (frags[id].prior ? k : -1)).filter((k) => k >= 0);
+    const priorSorted = flat.filter((id) => frags[id].prior).sort((a, b) => frags[a].pos - frags[b].pos);
+    slots.forEach((k, j) => { flat[k] = priorSorted[j]; });
+    let cur = 0;
+    ordered.forEach((g) => { g.ids = flat.slice(cur, cur + g.ids.length); cur += g.ids.length; });
+  }
   const changed = flat.some((id, i) => id !== i);
   mod.plan = {
     at: Date.now(), method, changed,
@@ -241,6 +252,7 @@ export async function orderModule(mod, { signal, onProgress, model } = {}) {
   };
   mod.text = joinFrags(mod, flat.map((i) => frags[i].id));
   mod.processedAt = 0;
+  frags.forEach((f) => { delete f.prior; delete f.pos; });
   save();
   return mod.plan;
 }
@@ -319,9 +331,13 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
   // 2) un capítulo por tema
   const base = mod.frags?.length > 1 ? 0.3 : 0;
   const chapters = [];
+  const cacheNew = {};
   let fallbacks = 0;
   for (let gi = 0; gi < groups.length; gi++) {
     const g = groups[gi];
+    // si este tema no cambió desde la última vez, se reutiliza el capítulo ya escrito
+    const ckey = hashStr([style, lang, verify ? 1 : 0, model || '', g.text].join('|'));
+    if (mod.cache?.[ckey]) { chapters.push(mod.cache[ckey]); cacheNew[ckey] = mod.cache[ckey]; onProgress?.(`Capítulo ${gi + 1} sin cambios`, base + ((gi + 1) / groups.length) * (0.9 - base)); continue; }
     const parts = splitParts(g.text);
     const given = headingOf(g.text);
     let heading = given || g.title, lead = '', keyIdea = '';
@@ -365,10 +381,12 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
     }
     if (!failed) paragraphs = splitLong(dedupeSentences(filterUnsupported(noMeta(paragraphs), g.text))).slice(0, capTotal + 2);
     if (failed) fallbacks++;
-    chapters.push({
+    const chapterObj = {
       heading: heading || `Capítulo ${gi + 1}`, lead, paragraphs, keyIdea,
       remember: [...new Set(remember)].slice(0, 4), original: failed || undefined,
-    });
+    };
+    chapters.push(chapterObj);
+    if (!failed) cacheNew[ckey] = chapterObj;
   }
 
   // 4) portada e introducción a partir de los capítulos reales; el cierre sale de las ideas clave
@@ -382,6 +400,7 @@ export async function makeBook(mod, { lang = 'es', style = 'explained', model, v
     } catch (e) { if (e.name === 'AbortError') throw e; }
   }
   const takeaways = chapters.map((c) => c.keyIdea).filter(Boolean);
+  mod.cache = cacheNew;
   mod.book = { style, lang, title: title || mod.title, subtitle, preface, chapters, takeaways, at: Date.now(), truncated: truncatedFrom, fallbacks, ordered: mod.plan ? { method: mod.plan.method, changed: mod.plan.changed } : null, model: model || null };
   save();
   logAct();

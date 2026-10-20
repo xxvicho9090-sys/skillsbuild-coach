@@ -1,11 +1,11 @@
 {
-  "version": "1.4.1",
+  "version": "1.5.0",
   "date": "2026-10-20",
   "notes": [
+    "Agrega más fotos a un libro y la IA lo reorganiza (solo reescribe lo que cambió).",
     "Borra los libros que quieras: modo Seleccionar, botón Eliminar en cada libro y Deshacer.",
     "Hojas de libro con zoom y vista general; la IA ordena por contenido, no por el orden de las capturas.",
     "Tema claro «papel» como predeterminado (el oscuro queda como opción).",
-    "Rediseño completo, libros con IA para leer a pantalla completa y app de escritorio.",
-    "La web publicada detecta tu versión local y te ofrece abrirla (sin configurar Ollama)."
+    "Rediseño completo, libros con IA para leer a pantalla completa y app de escritorio."
   ]
 }

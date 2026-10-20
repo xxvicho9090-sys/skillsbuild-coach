@@ -1,7 +1,7 @@
 {
   "name": "skillsbuild-coach-desktop",
   "productName": "SkillsBuild Coach",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "App de escritorio de SkillsBuild Coach: detecta tu Ollama automáticamente, sin servidor ni configuración.",
   "main": "main.js",
   "private": true,

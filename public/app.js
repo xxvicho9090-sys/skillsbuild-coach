@@ -2,14 +2,14 @@
 import { $, h, icon, toast, copy, download } from './lib/dom.js';
 import { S, init, save, flush, uid, dayKey, streak, logAct, findCourse, findMod, allModules, newCourse, newModule, replaceAll } from './lib/store.js';
 import * as ollama from './lib/ollama.js';
-import { outline, coverage, wordCount, cleanText } from './lib/text.js';
+import { outline, coverage, wordCount, cleanText, chunkSections } from './lib/text.js';
 import { extractFile, ACCEPT, isImage } from './lib/files.js';
 import { recognize, stopOCR } from './lib/ocr.js';
 import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards, makeBook, bookMarkdown, orderModule, orderCourse } from './lib/ai.js';
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 import { openReader, docFromSheet, docFromBook } from './lib/reader.js';
 
-const APP_VERSION = '1.4.1'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.5.0'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -384,6 +384,22 @@ async function processMany(course, mods) {
 
 /* ───────── Importar ───────── */
 
+// Suma contenido nuevo (fotos, PDF, texto) a un libro como fragmentos: la IA los acomoda junto con lo que ya estaba.
+function addFragments(m, r) {
+  const sep = String.fromCharCode(10, 10);
+  if (!m.frags?.length && m.text) {
+    m.frags = chunkSections(m.text, 1500, 80).chunks.map((t, i) => ({ id: uid(), name: `Apuntes previos ${i + 1}`, text: t }));
+  }
+  m.frags ||= [];
+  const order = m.plan ? m.plan.groups.flatMap((g) => g.ids) : m.frags.map((f) => f.id);
+  m.frags.forEach((f) => { f.prior = true; f.pos = Math.max(0, order.indexOf(f.id)); });
+  const add = r.frags?.length ? r.frags : [{ id: uid(), name: r.name, text: r.text }];
+  m.frags.push(...add.map((f) => ({ ...f, id: f.id || uid(), prior: false })));
+  m.text = (m.text ? m.text + sep : '') + add.map((f) => f.text).join(sep);
+  m.plan = null;
+  m.processedAt = 0;
+}
+
 function openImport({ courseId, modId } = {}) {
   let files = [];
   const list = h('div', { class: 'stack', style: 'gap:8px' });
@@ -418,6 +434,8 @@ function openImport({ courseId, modId } = {}) {
   const proc = h('input', { type: 'checkbox', checked: true });
   const bookChk = h('input', { type: 'checkbox', checked: true });
   const ordChk = h('input', { type: 'checkbox', checked: true });
+  const reorg = h('input', { type: 'checkbox', checked: true });
+  const target = modId ? findMod(findCourseOf(modId), modId) : null;
 
   const go_ = async () => {
     const text = paste.value.trim();
@@ -451,7 +469,8 @@ function openImport({ courseId, modId } = {}) {
           set(label_, (i + 1) / sources.length);
           if (modId) {
             const m = findMod(findCourseOf(modId), modId);
-            m.text = (m.text ? m.text + '\n\n' : '') + r.text; m.processedAt = 0; created.push(m);
+            addFragments(m, r);
+            if (!created.includes(m)) created.push(m);
             continue;
           }
           const per = split.value === 'auto' ? (r.pages && r.pages.length > 30 ? 12 : 0) : +split.value;
@@ -473,7 +492,19 @@ function openImport({ courseId, modId } = {}) {
     save();
     if (errors.length) openModal('Avisos de la importación', h('div', { class: 'stack' }, ...errors.map((e) => h('p', { class: 'small' }, e)), h('button', { class: 'btn primary', onclick: closeModal }, 'Entendido')));
     if (!created.length) { render(); return; }
-    toast(`Importado: ${plural(created.length, 'módulo', 'módulos')}`);
+    toast(modId ? 'Agregado al libro' : `Importado: ${plural(created.length, 'módulo', 'módulos')}`);
+    if (modId && reorg.checked) {
+      const m = findMod(findCourseOf(modId), modId);
+      if (m && (ollama.ready() || (await ollama.refresh()).ok)) {
+        await orderMany([m], null, false);
+        const ok = await bookMany([m], { style: m.book?.style || 'explained', lang: m.book?.lang || 'es', model: m.book?.model || undefined, verify: true }, findCourse(findCourseOf(modId)));
+        go(`#/mod/${findCourseOf(modId)}/${modId}/libro`);
+        render();
+        if (ok) toast('Libro reorganizado con las fotos nuevas');
+        return;
+      }
+      toast('Agregado. Conecta Ollama para reorganizar el libro con IA.');
+    }
     if ((bookChk.checked || proc.checked || ordChk.checked) && !modId) {
       if (ollama.ready() || (await ollama.refresh()).ok) {
         if (ordChk.checked || bookChk.checked || proc.checked) await orderMany(created, course, ordChk.checked);
@@ -485,8 +516,9 @@ function openImport({ courseId, modId } = {}) {
     render();
   };
 
-  openModal(modId ? 'Agregar al módulo' : 'Importar apuntes', h('div', { class: 'stack' },
+  openModal(modId ? 'Agregar fotos o archivos' : 'Importar apuntes', h('div', { class: 'stack' },
     drop, fileIn, list, title.field, h('label', { class: 'field' }, 'Texto', paste),
+    modId && h('label', { class: 'check' }, reorg, target?.book ? 'Reorganizar el libro con IA (solo reescribe lo que cambió)' : 'Ordenar con IA y crear el libro'),
     !modId && h('label', { class: 'field' }, 'Guardar en', sel), !modId && newName.field,
     !modId && h('label', { class: 'field' }, 'PDFs largos', split),
     !modId && h('label', { class: 'check' }, ordChk, 'Ordenar por lo que dice el contenido (no por el orden en que lo subí)'),
@@ -580,6 +612,7 @@ function tabLibro(c, m) {
   const b = m.book, d = docFromBook(m);
   return h('div', { class: 'stack' },
     h('button', { class: 'btn primary block', onclick: () => openReader(m, 'libro') }, icon('book'), 'Leer como libro en pantalla completa'),
+    h('button', { class: 'btn', style: 'align-self:flex-start', onclick: () => openImport({ modId: m.id }) }, icon('upload'), 'Agregar más fotos o archivos'),
     m.plan && h('div', { class: 'note' }, h('div', { class: 'k' }, 'ORDENADO POR CONTENIDO'), `La IA leyó ${plural(m.frags?.length || 0, 'fragmento', 'fragmentos')}, entendió de qué trata cada uno y los acomodó en ${plural(m.plan.groups.length, 'tema', 'temas')} en orden lógico${m.plan.changed ? '; el orden final no es el de las capturas' : ''}.`),
     b.truncated > 0 && h('div', { class: 'callout small' }, `El texto era largo: se escribieron los primeros ${b.chapters.length} capítulos de ${b.truncated} partes. Divide el documento en módulos más cortos para cubrirlo todo.`),
     b.fallbacks > 0 && h('div', { class: 'callout small' }, `${plural(b.fallbacks, 'capítulo conserva', 'capítulos conservan')} el texto original porque la IA no logró reescribirlo bien. Prueba "Volver a escribir".`),
@@ -691,7 +724,7 @@ function tabApuntes(c, m) {
     m.source && h('p', { class: 'small muted' }, `Origen: ${m.source.name}${m.source.pages ? ` · págs. ${m.source.pages[0]}–${m.source.pages[1]}` : ''}`),
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn', disabled: !m.text, onclick: () => openReader(m) }, icon('book'), 'Leer en pantalla completa'),
-      h('button', { class: 'btn', onclick: () => openImport({ modId: m.id }) }, icon('upload'), 'Agregar archivo'),
+      h('button', { class: 'btn', onclick: () => openImport({ modId: m.id }) }, icon('upload'), 'Agregar fotos o archivos'),
       h('button', { class: m.done ? 'btn' : 'btn primary', onclick: () => { m.done = !m.done; save(); logAct(); toast(m.done ? 'Módulo terminado' : 'Marcado como pendiente'); render(); } }, icon('check'), m.done ? 'Marcar pendiente' : 'Marcar terminado')),
     h('div', { class: 'card stack' }, h('h3', null, 'Duda para el tutor'), h('div', { class: 'row' }, q, h('button', { class: 'btn primary', onclick: ask }, 'Preguntar')), ans),
     S.courses.length > 1 && h('label', { class: 'field' }, 'Mover a', move),
