@@ -6,7 +6,7 @@ export const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toS
 export const dayKey = (d = new Date()) => d.toLocaleDateString('sv-SE');
 
 const defaults = () => ({
-  settings: { url: 'http://localhost:11434', model: '', ctx: 4096, theme: 'auto' },
+  settings: { url: 'http://localhost:11434', model: '', ctx: 4096, theme: 'light' },
   meta: { seenVersion: '', lastCheck: 0 },
   courses: [],
   cards: [],

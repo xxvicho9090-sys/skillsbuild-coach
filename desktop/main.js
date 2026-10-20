@@ -145,7 +145,7 @@ const openExternal = (url) => { if (/^https?:\/\//i.test(url)) shell.openExterna
 function createWindow() {
   win = new BrowserWindow({
     width: 1280, height: 860, minWidth: 380, minHeight: 600,
-    backgroundColor: '#14130f', title: 'SkillsBuild Coach', icon: path.join(__dirname, 'icon.ico'), autoHideMenuBar: true, show: false,
+    backgroundColor: '#f4efe4', title: 'SkillsBuild Coach', icon: path.join(__dirname, 'icon.ico'), autoHideMenuBar: true, show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true },
   });
   win.once('ready-to-show', () => win.show());

@@ -25,7 +25,7 @@
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+  :root[data-theme='auto'] {
     --bg: #14130f; --side: #19170f; --surface: #1d1b15; --surface2: #27241c; --line: #2e2b22; --line2: #3d392d;
     --text: #ece6d8; --text2: #cfc8b7; --muted: #9a927f;
     --accent: #e0805f; --accent-text: #ee9577; --on-accent: #1b0f09;
@@ -246,7 +246,7 @@ svg.i { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-widt
 /* lector a pantalla completa (siempre papel; oscuro si el sistema/tema es oscuro) */
 .reader { --rs: 19px; position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; background: #f7f2e7; color: #2b2822; --bg: #f7f2e7; --surface: #fbf8f1; --surface2: #ebe4d4; --line: #ddd3bf; --line2: #cfc4ac; --text: #1d1b16; --text2: #2b2822; --muted: #6f6857; --accent: #b5432a; --accent-text: #9c3722; --on-accent: #fff; --ink: #1d1b16; --on-ink: #f4efe4; }
 :root[data-theme='dark'] .reader { --bg: #17150f; --surface: #1e1c15; --surface2: #29261d; --line: #2e2b22; --line2: #3d392d; --text: #ece6d8; --text2: #d6cfbd; --muted: #9a927f; --accent: #e0805f; --accent-text: #ee9577; --on-accent: #1b0f09; --ink: #ece6d8; --on-ink: #17150f; background: #17150f; color: #d6cfbd; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .reader { --bg: #17150f; --surface: #1e1c15; --surface2: #29261d; --line: #2e2b22; --line2: #3d392d; --text: #ece6d8; --text2: #d6cfbd; --muted: #9a927f; --accent: #e0805f; --accent-text: #ee9577; --on-accent: #1b0f09; --ink: #ece6d8; --on-ink: #17150f; background: #17150f; color: #d6cfbd; } }
+@media (prefers-color-scheme: dark) { :root[data-theme='auto'] .reader { --bg: #17150f; --surface: #1e1c15; --surface2: #29261d; --line: #2e2b22; --line2: #3d392d; --text: #ece6d8; --text2: #d6cfbd; --muted: #9a927f; --accent: #e0805f; --accent-text: #ee9577; --on-accent: #1b0f09; --ink: #ece6d8; --on-ink: #17150f; background: #17150f; color: #d6cfbd; } }
 .reader-bar { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--bg); flex: none; }
 .reader-title { flex: 1; min-width: 0; font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 .reader-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; }

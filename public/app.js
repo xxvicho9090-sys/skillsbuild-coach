@@ -9,7 +9,7 @@ import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, a
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 import { openReader, docFromSheet, docFromBook } from './lib/reader.js';
 
-const APP_VERSION = '1.3.0'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.3.1'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -49,7 +49,7 @@ const input = (label, attrs = {}) => { const el = h('input', attrs); return { el
 
 function applyTheme() {
   const t = S.settings.theme;
-  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  document.documentElement.dataset.theme = t === 'dark' || t === 'auto' ? t : 'light';
   $('meta[name=theme-color]').content = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#0e1116';
 }
 
@@ -737,7 +737,7 @@ function viewAjustes() {
   model.addEventListener('change', () => { S.settings.model = model.value; save(); toast('Modelo: ' + model.value); });
   const ctx = h('select', { 'aria-label': 'Memoria de contexto' }, [2048, 4096, 8192].map((n) => h('option', { value: n, selected: n === S.settings.ctx }, `${n} tokens${n === 4096 ? ' (recomendado)' : n === 8192 ? ' (más RAM)' : ''}`)));
   ctx.addEventListener('change', () => { S.settings.ctx = +ctx.value; save(); });
-  const theme = h('select', { 'aria-label': 'Tema' }, [['auto', 'Automático'], ['dark', 'Oscuro'], ['light', 'Claro']].map(([v, t]) => h('option', { value: v, selected: v === S.settings.theme }, t)));
+  const theme = h('select', { 'aria-label': 'Tema' }, [['light', 'Claro · papel (recomendado)'], ['dark', 'Oscuro'], ['auto', 'Automático (sigue a Windows)']].map(([v, t]) => h('option', { value: v, selected: v === S.settings.theme }, t)));
   theme.addEventListener('change', () => { S.settings.theme = theme.value; save(); applyTheme(); });
 
   const upd = h('div', { class: 'small muted' }, S.meta.lastCheck ? `Última revisión: ${new Date(S.meta.lastCheck).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'Aún sin revisar');
@@ -835,6 +835,7 @@ async function setupSW() {
 
 (async function boot() {
   await init();
+  if (S.meta.themeV !== 2) { S.settings.theme = 'light'; S.meta.themeV = 2; save(); } // el tono papel es el predeterminado
   applyTheme();
   render();
   setupSW();

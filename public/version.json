@@ -1,11 +1,11 @@
 {
-  "version": "1.3.0",
+  "version": "1.3.1",
   "date": "2026-10-20",
   "notes": [
+    "Tema claro «papel» como predeterminado (el oscuro queda como opción).",
     "Rediseño completo, libros con IA para leer a pantalla completa y app de escritorio.",
     "La web publicada detecta tu versión local y te ofrece abrirla (sin configurar Ollama).",
     "Modo local integrado: Iniciar-Coach conecta con tu Ollama sin configurar nada (también desde el celular con --lan).",
-    "Botón para instalar la app en la pantalla Hoy.",
-    "Mensaje de conexión más claro cuando falta el permiso OLLAMA_ORIGINS."
+    "Botón para instalar la app en la pantalla Hoy."
   ]
 }
