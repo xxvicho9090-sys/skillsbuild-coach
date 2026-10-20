@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SkillsBuild Coach</title>
+<meta name="description" content="Ordena tus apuntes y PDFs del curso, practica con quizzes y repasa con repetición espaciada usando una IA local (Ollama).">
+<meta name="theme-color" content="#0e1116">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#app">Saltar al contenido</a>
+<div id="update" class="update" hidden></div>
+<div class="shell">
+  <nav id="nav" class="nav" aria-label="Principal"></nav>
+  <main id="app" tabindex="-1"></main>
+</div>
+<div id="modal" class="scrim" hidden></div>
+<div id="busy" class="scrim" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<noscript>SkillsBuild Coach necesita JavaScript.</noscript>
+<script type="module" src="app.js"></script>
+</body>
+</html>

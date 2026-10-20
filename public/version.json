@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "date": "2026-10-20",
+  "notes": [
+    "Primera versión: importa PDF, Word y texto, ordena apuntes con IA local, quizzes y repaso espaciado."
+  ]
+}
