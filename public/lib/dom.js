@@ -46,12 +46,20 @@ export function icon(name) {
 }
 
 let toastTimer;
-export function toast(msg) {
+export function toast(msg, action) {
   const t = $('#toast');
-  t.textContent = msg;
+  t.replaceChildren(document.createTextNode(msg));
+  if (action) {
+    const b = document.createElement('button');
+    b.className = 'toast-action';
+    b.textContent = action.label;
+    b.onclick = () => { clearTimeout(toastTimer); t.classList.remove('show'); t.style.pointerEvents = 'none'; action.fn(); };
+    t.append(b);
+  }
+  t.style.pointerEvents = action ? 'auto' : 'none';
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); t.style.pointerEvents = 'none'; }, action ? 9000 : 3200);
 }
 
 export async function copy(text) {

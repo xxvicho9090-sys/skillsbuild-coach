@@ -372,3 +372,17 @@ mark.kw { background: color-mix(in srgb, var(--accent) 20%, transparent); color:
 .thumb-clip .reader-doc { position: relative; max-width: none; padding: 0; }
 .reader.paged .reader-toc { display: none; position: fixed; z-index: 7; left: 0; top: 53px; bottom: 0; width: min(330px, 88vw); padding: 16px 16px 24px; background: var(--bg); border-right: 1px solid var(--line); box-shadow: 8px 0 30px rgba(0, 0, 0, .12); max-height: none; overflow: auto; }
 .reader.paged.toc-open .reader-toc { display: block; }
+
+/* seleccionar y borrar libros */
+.vol.selectable { background: none; border: 0; padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.vol.selectable .cover::before { content: ''; position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; border-radius: 50%; background: rgba(255, 255, 255, .85); border: 2px solid #fff; z-index: 2; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); }
+.vol.picked .cover { outline: 3px solid var(--accent); outline-offset: 3px; }
+.vol.picked .cover::before { content: '\2713'; display: grid; place-items: center; background: var(--accent); color: var(--on-accent); font-weight: 700; font-size: 15px; border-color: var(--accent); }
+.vol.selectable:hover .cover { transform: none; }
+.selbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(86px + env(safe-area-inset-bottom)); z-index: 40; width: min(560px, calc(100vw - 24px)); display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 18px; border-radius: 16px; background: var(--ink); color: var(--on-ink); box-shadow: 0 12px 34px rgba(0, 0, 0, .3); font-size: 14px; }
+.selbar .btn { color: var(--on-ink); border-color: color-mix(in srgb, var(--on-ink) 35%, transparent); }
+.selbar .btn:hover { background: color-mix(in srgb, var(--on-ink) 12%, transparent); }
+.selbar .btn.danger { background: var(--bad); color: #fff; border-color: transparent; }
+@media (min-width: 900px) { .selbar { bottom: 28px; } }
+.toast-action { margin-left: 14px; min-height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--on-ink) 40%, transparent); background: transparent; color: var(--on-ink); font-weight: 600; }
+.toast-action:hover { background: color-mix(in srgb, var(--on-ink) 14%, transparent); }

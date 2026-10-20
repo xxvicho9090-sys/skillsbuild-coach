@@ -9,7 +9,7 @@ import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, a
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 import { openReader, docFromSheet, docFromBook } from './lib/reader.js';
 
-const APP_VERSION = '1.4.0'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.4.1'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -164,11 +164,13 @@ function render() {
   const route = parts[0] || 'hoy';
   const views = { hoy: viewBiblioteca, cursos: viewBiblioteca, curso: viewCurso, mod: viewMod, repaso: viewRepaso, ajustes: viewAjustes };
   const nav = { hoy: 'hoy', cursos: 'hoy', curso: 'hoy', mod: 'hoy', repaso: 'repaso', ajustes: 'ajustes' }[route] || 'hoy';
+  if (sel.on && !['hoy', 'cursos', 'curso'].includes(route)) { sel.on = false; sel.ids.clear(); }
   let el;
   try { el = (views[route] || viewBiblioteca)(...parts.slice(1)); }
   catch (e) { console.error(e); el = h('div', { class: 'empty' }, h('h3', null, 'Algo salió mal'), h('p', null, e.message)); }
   app.replaceChildren(el);
   renderNav(nav);
+  selBar();
   scrollTo(0, 0);
   document.title = 'SkillsBuild Coach';
 }
@@ -191,8 +193,63 @@ function coverEl(m) {
     h('div', { class: 'ct' }, m.book?.title || m.title),
     h('div', null, h('div', { class: 'tag' }, m.seq ? `Parte ${m.seq}` : kindOf(m)), h('div', { class: 'cp', style: 'margin-top:8px' }, h('i', { style: `width:${Math.round(progressOf(m) * 100)}%` }))));
 }
-const bookLink = (c, m) => h('a', { class: 'vol', href: `#/mod/${c.id}/${m.id}`, 'aria-label': `${m.book?.title || m.title}. ${statusOf(m)}` },
-  coverEl(m), h('div', { class: 'meta' + (m.done ? ' ok' : '') }, statusOf(m)));
+// Selección para borrar libros a elección
+const sel = { on: false, ids: new Map() };
+function selBar() {
+  let bar = $('#selbar');
+  if (!sel.on) { bar?.remove(); return; }
+  if (!bar) { bar = h('div', { id: 'selbar', class: 'selbar', role: 'region', 'aria-label': 'Libros seleccionados' }); document.body.append(bar); }
+  const n = sel.ids.size;
+  bar.replaceChildren(
+    h('span', { class: 'grow' }, n ? plural(n, 'libro seleccionado', 'libros seleccionados') : 'Toca los libros que quieras borrar'),
+    h('button', { class: 'btn small', onclick: () => setSelect(false) }, 'Cancelar'),
+    h('button', { class: 'btn small danger', disabled: !n, onclick: () => deleteBooks([...sel.ids.values()]) }, icon('trash'), n ? `Eliminar (${n})` : 'Eliminar'));
+}
+function setSelect(on) {
+  sel.on = on ?? !sel.on;
+  sel.ids.clear();
+  render();
+  selBar();
+}
+
+// Borra libros (con sus tarjetas) y permite deshacer durante unos segundos.
+function deleteBooks(items, { ask = true, then } = {}) {
+  if (!items.length) return;
+  const names = items.map((x) => x.m.book?.title || x.m.title);
+  if (ask && !confirm(items.length === 1 ? `¿Eliminar «${names[0]}» y sus tarjetas?` : `¿Eliminar ${items.length} libros y sus tarjetas?\n\n${names.slice(0, 6).join('\n')}${names.length > 6 ? '\n…' : ''}`)) return;
+  const snap = items.map(({ c, m }) => ({ c, m, index: c.modules.indexOf(m), cards: S.cards.filter((k) => k.mid === m.id) }));
+  snap.forEach(({ c, m }) => { removeCards((k) => k.mid === m.id); c.modules = c.modules.filter((x) => x !== m); });
+  sel.on = false; sel.ids.clear();
+  save();
+  then?.();
+  render(); selBar();
+  toast(items.length === 1 ? 'Libro eliminado' : `${items.length} libros eliminados`, {
+    label: 'Deshacer',
+    fn: () => {
+      snap.sort((a, b) => a.index - b.index).forEach(({ c, m, index, cards }) => {
+        if (!S.courses.includes(c)) S.courses.push(c);
+        c.modules.splice(Math.max(0, Math.min(index, c.modules.length)), 0, m);
+        S.cards.push(...cards);
+      });
+      save(); render(); toast('Libros restaurados');
+    },
+  });
+}
+
+const bookLink = (c, m) => {
+  const label = `${m.book?.title || m.title}. ${statusOf(m)}`;
+  const meta = h('div', { class: 'meta' + (m.done ? ' ok' : '') }, statusOf(m));
+  if (!sel.on) return h('a', { class: 'vol', href: `#/mod/${c.id}/${m.id}`, 'aria-label': label }, coverEl(m), meta);
+  const b = h('button', { class: 'vol selectable' + (sel.ids.has(m.id) ? ' picked' : ''), 'aria-pressed': String(sel.ids.has(m.id)), 'aria-label': label });
+  b.append(coverEl(m), meta);
+  b.addEventListener('click', () => {
+    if (sel.ids.has(m.id)) sel.ids.delete(m.id); else sel.ids.set(m.id, { c, m });
+    b.classList.toggle('picked', sel.ids.has(m.id));
+    b.setAttribute('aria-pressed', String(sel.ids.has(m.id)));
+    selBar();
+  });
+  return b;
+};
 const addTile = (label, fn) => h('button', { class: 'book-add', onclick: fn }, icon('upload'), label);
 
 function planFor(c) {
@@ -230,7 +287,7 @@ function viewBiblioteca() {
   const body = h('div', { class: 'stack', style: 'gap:28px' });
   const head = h('div', { class: 'lib-head' },
     h('div', null, h('div', { class: 'eyebrow' }, new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })), h('h1', { style: 'margin-top:6px' }, 'Tu biblioteca')),
-    h('div', { class: 'tools' }, h('label', { class: 'search' }, icon('search'), q), h('button', { class: 'btn primary', onclick: () => openImport() }, icon('plus'), 'Nuevo libro')));
+    h('div', { class: 'tools' }, h('label', { class: 'search' }, icon('search'), q), mods.length > 0 && h('button', { class: 'btn' + (sel.on ? ' ink' : ''), onclick: () => setSelect() }, icon('trash'), sel.on ? 'Listo' : 'Seleccionar'), h('button', { class: 'btn primary', onclick: () => openImport() }, icon('plus'), 'Nuevo libro')));
 
   const shelves = () => {
     if (!S.courses.length) {
@@ -300,6 +357,7 @@ function viewCurso(cid) {
       h('div', { class: 'field grow', style: 'min-width:200px' }, 'Avance', h('div', { class: 'row', style: 'min-height:44px' }, h('div', { class: 'bar grow' + (done === c.modules.length && done ? ' ok' : '') }, h('i', { style: `width:${c.modules.length ? Math.round(done / c.modules.length * 100) : 0}%` })), h('span', { class: 'small' }, `${done}/${c.modules.length}`)))),
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn primary', onclick: () => openImport({ courseId: c.id }) }, icon('upload'), 'Importar aquí'),
+      c.modules.length > 0 && h('button', { class: 'btn' + (sel.on ? ' ink' : ''), onclick: () => setSelect() }, icon('trash'), sel.on ? 'Listo' : 'Seleccionar libros'),
       h('button', { class: 'btn', onclick: () => { const m = newModule('Nuevo libro'); c.modules.push(m); save(); go(`#/mod/${c.id}/${m.id}/apuntes`); } }, icon('plus'), 'Libro vacío'),
       pending.length > 0 && h('button', { class: 'btn', onclick: () => processMany(c, pending) }, icon('spark'), `Ficha y preguntas para ${pending.length}`),
       c.modules.length > 1 && h('button', { class: 'btn', onclick: () => orderCourseUI(c) }, icon('books'), 'Ordenar el curso por contenido'),
@@ -551,7 +609,8 @@ function viewMod(cid, mid, tab) {
         h('div', { class: 'small muted' }, statusOf(m)),
         h('div', { class: 'row wrap' },
           h('button', { class: 'btn primary', disabled: !m.text, onclick: () => openReader(m) }, icon('book'), m.book ? 'Leer libro' : 'Leer'),
-          h('button', { class: 'btn', onclick: () => { m.done = !m.done; save(); logAct(); toast(m.done ? 'Libro terminado' : 'Marcado como pendiente'); render(); } }, icon('check'), m.done ? 'Marcar pendiente' : 'Marcar terminado')))),
+          h('button', { class: 'btn', onclick: () => { m.done = !m.done; save(); logAct(); toast(m.done ? 'Libro terminado' : 'Marcado como pendiente'); render(); } }, icon('check'), m.done ? 'Marcar pendiente' : 'Marcar terminado'),
+          h('button', { class: 'btn danger', onclick: () => deleteBooks([{ c, m }], { then: () => go('#/curso/' + c.id) }) }, icon('trash'), 'Eliminar')))),
     h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([k, t]) => h('a', { class: 'tab', href: `#/mod/${cid}/${mid}/${k}`, 'aria-current': k === tab ? 'page' : null }, t))),
     body(c, m));
 }
