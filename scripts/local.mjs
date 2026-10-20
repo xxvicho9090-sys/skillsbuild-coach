@@ -66,7 +66,10 @@ function proxy(req, res) {
 const server = createServer(async (req, res) => {
   // Señal de vida para la web publicada: solo dice que la versión local está corriendo (sin datos).
   if (okHost(req.headers.host) && req.url === '/__sbc') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    // Chrome pide permiso de "red privada" (preflight) cuando una web pública llama a localhost.
+    const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Private-Network': 'true', 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Allow-Headers': '*', 'Access-Control-Max-Age': '600' };
+    if (req.method === 'OPTIONS') { res.writeHead(204, cors).end(); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json', ...cors });
     res.end(JSON.stringify({ app: 'skillsbuild-coach' }));
     return;
   }
