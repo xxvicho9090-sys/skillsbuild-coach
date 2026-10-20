@@ -8,7 +8,7 @@ import { recognize, stopOCR } from './lib/ocr.js';
 import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards } from './lib/ai.js';
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 
-const APP_VERSION = '1.0.0'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.0.1'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -63,7 +63,7 @@ function ollamaHelp() {
     ...(local ? [] : [['2 · Permite esta web (Windows, PowerShell)', `setx OLLAMA_ORIGINS "${origin}"`], ['   macOS (Terminal)', `launchctl setenv OLLAMA_ORIGINS "${origin}"`]]),
   ];
   const kindMsg = {
-    down: 'No encuentro Ollama. Ábrelo (icono en la bandeja) o inícialo con "ollama serve".',
+    down: `No logro conectar con Ollama. Ábrelo (icono en la bandeja) o inícialo con "ollama serve"${local ? '.' : '; si ya está abierto, falta el permiso OLLAMA_ORIGINS (paso 2) y reiniciarlo.'}`,
     origin: 'Ollama está activo, pero bloquea esta web. Falta el permiso OLLAMA_ORIGINS (paso 2).',
     model: `Falta el modelo "${model}". Instálalo con el paso 1.`,
     http: ollama.status.error,
