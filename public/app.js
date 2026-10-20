@@ -8,7 +8,7 @@ import { recognize, stopOCR } from './lib/ocr.js';
 import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards } from './lib/ai.js';
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 
-const APP_VERSION = '1.0.1'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.1.0'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -150,7 +150,7 @@ function viewHoy() {
   const date = h('div', { class: 'eyebrow' }, new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' }));
 
   if (!S.courses.length) {
-    return h('div', { class: 'stack' }, head, date,
+    return h('div', { class: 'stack' }, head, installCard(), date,
       h('h1', null, 'Manda tus apuntes y yo los ordeno.'),
       h('p', { class: 'muted' }, 'Importa los PDF, documentos o textos de tu curso de IBM SkillsBuild. La IA local los convierte en fichas ordenadas, conceptos, quizzes y tarjetas de repaso.'),
       h('div', { class: 'card stack' },
@@ -161,7 +161,7 @@ function viewHoy() {
       !ollama.ready() && h('div', { class: 'callout' }, 'Para ordenar con IA conecta Ollama. ', h('a', { href: '#/ajustes' }, 'Ver cómo')));
   }
 
-  return h('div', { class: 'stack' }, head, date,
+  return h('div', { class: 'stack' }, head, installCard(), date,
     h('h1', null, due ? 'Hoy toca repasar antes de avanzar.' : 'Estás al día. Avanza con un módulo.'),
     h('div', { class: 'card stack' },
       h('div', { class: 'row', style: 'align-items:baseline' },
@@ -660,10 +660,14 @@ function viewAjustes() {
 }
 
 let installEvt = null;
-addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (location.hash.startsWith('#/ajustes')) render(); });
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (/^#\/(ajustes|hoy)?$/.test(location.hash)) render(); });
 addEventListener('appinstalled', () => { installEvt = null; toast('App instalada'); });
+const doInstall = async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; render(); };
+const installCard = () => !installEvt ? null : h('div', { class: 'card row between', style: 'border-color:var(--accent)' },
+  h('div', { class: 'grow' }, h('strong', null, 'Instala la app'), h('div', { class: 'small muted' }, 'Ábrela como programa propio, sin barra del navegador y con acceso sin conexión.')),
+  h('button', { class: 'btn primary', onclick: doInstall }, icon('download'), 'Instalar'));
 const installBtn = () => installEvt
-  ? h('button', { class: 'btn primary', style: 'align-self:flex-start', onclick: async () => { installEvt.prompt(); await installEvt.userChoice; installEvt = null; render(); } }, icon('download'), 'Instalar como app')
+  ? h('button', { class: 'btn primary', style: 'align-self:flex-start', onclick: doInstall }, icon('download'), 'Instalar como app')
   : matchMedia('(display-mode: standalone)').matches ? h('p', { class: 'small muted' }, 'Ya estás usando la app instalada.') : h('p', { class: 'small muted' }, 'Para instalarla: menú del navegador → "Instalar app" o "Agregar a pantalla de inicio".');
 
 /* ───────── actualizaciones ───────── */
