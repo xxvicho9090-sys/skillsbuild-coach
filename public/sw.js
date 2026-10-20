@@ -1,5 +1,5 @@
 // SkillsBuild Coach · service worker. CACHE lo actualiza scripts/release.mjs.
-const CACHE = 'sbc-1.6.0';
+const CACHE = 'sbc-1.7.0';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png',
   'lib/dom.js', 'lib/store.js', 'lib/ollama.js', 'lib/text.js', 'lib/files.js', 'lib/ai.js', 'lib/srs.js', 'lib/ocr.js', 'lib/reader.js'];
 

@@ -1,11 +1,11 @@
 {
-  "version": "1.6.0",
+  "version": "1.7.0",
   "date": "2026-10-20",
   "notes": [
+    "Botón Acercar: una sola hoja grande con letra más grande (tecla F o doble clic en la hoja).",
     "Libros en lenguaje sencillo con medición de legibilidad, pasos y definiciones detectados del material, y botón Regenerar libro.",
     "Agrega más fotos a un libro y la IA lo reorganiza (solo reescribe lo que cambió).",
     "Borra los libros que quieras: modo Seleccionar, botón Eliminar en cada libro y Deshacer.",
-    "Hojas de libro con zoom y vista general; la IA ordena por contenido, no por el orden de las capturas.",
-    "Tema claro «papel» como predeterminado (el oscuro queda como opción)."
+    "Hojas de libro con zoom y vista general; la IA ordena por contenido, no por el orden de las capturas."
   ]
 }

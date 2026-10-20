@@ -397,3 +397,6 @@ mark.kw { background: color-mix(in srgb, var(--accent) 20%, transparent); color:
 .steps ol { margin: 0; padding-left: 1.5em; display: flex; flex-direction: column; gap: .45em; }
 .steps li::marker { color: var(--accent-text); font-weight: 700; }
 .reader.paged .defs, .reader.paged .steps { break-inside: avoid-column; }
+
+/* acercar: texto nítido y transiciones suaves */
+.zoomer { will-change: auto; transition: transform .3s cubic-bezier(.2, .75, .2, 1); }

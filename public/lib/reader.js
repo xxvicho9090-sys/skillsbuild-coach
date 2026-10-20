@@ -139,19 +139,20 @@ export function openReader(m, want) {
   const btn = (label, ic, fn) => h('button', { class: 'icon-btn', 'aria-label': label, title: label, onclick: fn }, ic);
   const modeBtns = modes.length > 1 ? modes.map((k) => h('button', { class: 'tab', 'aria-pressed': 'false', 'data-mode': k, onclick: () => setMode(k) }, LABEL[k])) : [];
   const layoutBtn = h('button', { class: 'tab', title: 'Alternar entre hojas y lectura continua', onclick: () => setLayout(layout === 'pages' ? 'scroll' : 'pages') });
+  const focusBtn = h('button', { class: 'tab', title: 'Acercar a una hoja grande, más cómoda de leer (F · doble clic en una hoja)', 'aria-pressed': 'false', onclick: () => setFocus(!focus) }, 'Acercar');
   const tocBtn = btn('Índice', h('span', { class: 'mono', style: 'font-size:13px;font-weight:600' }, '☰'), () => root.classList.toggle('toc-open'));
   const count = h('span', { class: 'pagecount' });
   const overviewBtn = btn('Vista general de hojas (G)', icon('books'), () => toggleOverview());
   const zoomOut = btn('Alejar (Ctrl + rueda)', h('span', { style: 'font-size:20px;font-weight:600' }, '−'), () => setZoom(zoom / 1.25));
   const zoomLabel = h('button', { class: 'zoomlabel', title: 'Restablecer zoom', onclick: () => setZoom(1, true) }, '100%');
   const zoomIn = btn('Acercar (Ctrl + rueda)', h('span', { style: 'font-size:20px;font-weight:600' }, '+'), () => setZoom(zoom * 1.25));
-  const pagedOnly = [overviewBtn, zoomOut, zoomLabel, zoomIn, count];
+  const pagedOnly = [focusBtn, overviewBtn, zoomOut, zoomLabel, zoomIn, count];
 
   const bar = h('header', { class: 'reader-bar' },
     btn('Cerrar lectura (Esc)', icon('x'), () => close()),
     h('div', { class: 'reader-title' }, m.title),
     count,
-    h('div', { class: 'row', style: 'gap:6px' }, ...modeBtns, layoutBtn, tocBtn, overviewBtn, zoomOut, zoomLabel, zoomIn,
+    h('div', { class: 'row', style: 'gap:6px' }, ...modeBtns, layoutBtn, focusBtn, tocBtn, overviewBtn, zoomOut, zoomLabel, zoomIn,
       btn('Letra más chica (-)', h('span', { style: 'font-size:13px;font-weight:600' }, 'A−'), () => bump(-1)),
       btn('Letra más grande (+)', h('span', { style: 'font-size:17px;font-weight:600' }, 'A+'), () => bump(1))),
     h('div', { class: 'reader-progress' }, prog));
@@ -161,6 +162,9 @@ export function openReader(m, want) {
   let p = 0, total = 1, ppv = 1, pw = 600, chapters = [];
   let geo = { pad: 30, top: 46, vh: 400, cw: 400, ph: 500 };
   let zoom = 1, panX = 0, panY = 0;
+  let focus = S.settings.readFocus !== false; // "Acercar": una sola hoja grande con letra más grande (por defecto en pantallas anchas)
+  // Primer bloque de la hoja visible: sirve para volver a la misma lectura cuando cambia el tamaño de las hojas.
+  const anchorAt = (page) => [...doc.children].find((el) => el.offsetLeft >= page * pw - 1 && el.offsetLeft < (page + 1) * pw - 1) || null;
   function applyZoom() {
     zoomer.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
     zoomLabel.textContent = Math.round(zoom * 100) + '%';
@@ -184,14 +188,17 @@ export function openReader(m, want) {
     else defaultJump(el);
   }
 
-  function relayout(frac) {
+  function relayout(frac, anchor) {
     if (layout !== 'pages') return;
     const W = stage.clientWidth, H = stage.clientHeight;
     if (!W || !H) return;
-    ppv = W >= 900 ? 2 : 1;
-    const maxW = ppv === 2 ? Math.min(1240, W - 150) : Math.min(W - 8, 680);
+    const wide = W >= 900;
+    ppv = wide && !focus ? 2 : 1;
+    const closeUp = wide && focus;
+    root.style.setProperty('--read-size', Math.round(size() * (closeUp ? 1.3 : 1)) + 'px');
+    const maxW = ppv === 2 ? Math.min(1240, W - 150) : closeUp ? Math.min(W - 150, 880) : Math.min(W - 8, 680);
     pw = Math.floor(ppv === 2 ? maxW / 2 : maxW);
-    const ph = Math.min(H - 28, 1000);
+    const ph = Math.min(H - 28, closeUp ? 1100 : 1000);
     const pad = Math.max(20, Math.min(48, Math.round(pw * 0.085)));
     const cw = pw - 2 * pad;
     const top = 46, bottom = 44;
@@ -205,7 +212,19 @@ export function openReader(m, want) {
     const cols = Math.round((doc.scrollWidth - cw) / pw) + 1;
     total = Math.max(1, cols);
     chapters = [...doc.querySelectorAll('.chapter-h')].map((el) => ({ title: el.textContent, page: Math.floor((el.offsetLeft + 2) / pw) }));
-    go(frac != null ? Math.round(frac * (total - 1)) : p, false);
+    if (anchor && anchor.isConnected) go(Math.floor((anchor.offsetLeft + 2) / pw), false);
+    else go(frac != null ? Math.round(frac * (total - 1)) : p, false);
+  }
+
+  function setFocus(on, side = 0) {
+    if (layout !== 'pages' || on === focus) return;
+    const anchor = anchorAt(p + side);
+    focus = on;
+    S.settings.readFocus = on;
+    save();
+    focusBtn.setAttribute('aria-pressed', String(on));
+    setZoom(1, true);
+    relayout(null, anchor);
   }
 
   function go(i, animate = true) {
@@ -251,6 +270,7 @@ export function openReader(m, want) {
     if (!paged) { toggleOverview(false); setZoom(1, true); }
     layoutBtn.textContent = paged ? 'Hojas' : 'Continuo';
     layoutBtn.setAttribute('aria-pressed', String(paged));
+    focusBtn.setAttribute('aria-pressed', String(focus));
     if (paged) { viewport.replaceChildren(doc); root.append(tocBox); }
     else { doc.removeAttribute('style'); scroller.replaceChildren(tocBox, doc); }
   }
@@ -265,7 +285,7 @@ export function openReader(m, want) {
     if (l === 'pages') relayout(f);
     else requestAnimationFrame(() => { scroller.scrollTop = f * Math.max(0, scroller.scrollHeight - scroller.clientHeight); updateScroll(); });
   }
-  function bump(d) { const f = fracNow(); S.settings.readSize = Math.max(14, Math.min(30, size() + d)); applySize(); save(); if (layout === 'pages') requestAnimationFrame(() => relayout(f)); }
+  function bump(d) { const f = fracNow(), a = layout === 'pages' ? anchorAt(p) : null; S.settings.readSize = Math.max(14, Math.min(30, size() + d)); applySize(); save(); if (layout === 'pages') requestAnimationFrame(() => relayout(f, a)); }
   function remember() { (m.readPos ||= {})[mode] = fracNow(); }
   function updateScroll() { prog.style.width = Math.round(fracNow() * 100) + '%'; }
   scroller.addEventListener('scroll', updateScroll, { passive: true });
@@ -298,7 +318,11 @@ export function openReader(m, want) {
   };
   stage.addEventListener('pointerup', endPtr);
   stage.addEventListener('pointercancel', endPtr);
-  spread.addEventListener('dblclick', () => setZoom(zoom > 1.01 ? 1 : 1.7, zoom > 1.01));
+  spread.addEventListener('dblclick', (e) => {
+    if (layout !== 'pages') return;
+    const r = spread.getBoundingClientRect();
+    setFocus(!focus, ppv === 2 && (e.clientX - r.left) > r.width / 2 ? 1 : 0);
+  });
   stage.addEventListener('wheel', (e) => {
     if (layout !== 'pages') return;
     if (e.ctrlKey) { e.preventDefault(); setZoom(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); return; }
@@ -345,6 +369,7 @@ export function openReader(m, want) {
     if (e.target?.matches?.('input,textarea,select')) return;
     if (e.key === 'Escape') { if (!overview.hidden) toggleOverview(false); else if (root.classList.contains('toc-open')) root.classList.remove('toc-open'); else close(); return; }
     if (e.key === 'g' || e.key === 'G') { toggleOverview(); return; }
+    if ((e.key === 'f' || e.key === 'F') && layout === 'pages') { setFocus(!focus); return; }
     if (e.key === '0' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); setZoom(1, true); return; }
     if (e.key === '+' || e.key === '=') bump(1);
     else if (e.key === '-') bump(-1);
@@ -356,7 +381,7 @@ export function openReader(m, want) {
     }
   };
   let closed = false, resizeT;
-  const ro = new ResizeObserver(() => { clearTimeout(resizeT); resizeT = setTimeout(() => relayout(fracNow()), 120); });
+  const ro = new ResizeObserver(() => { clearTimeout(resizeT); resizeT = setTimeout(() => relayout(fracNow(), anchorAt(p)), 120); });
   function close() {
     if (closed) return;
     closed = true;
@@ -377,7 +402,7 @@ export function openReader(m, want) {
   if (matchMedia('(min-width: 1000px)').matches && layout === 'scroll') root.classList.add('toc-open');
   build(true);
   ro.observe(stage);
-  document.fonts?.ready.then(() => { if (!closed) relayout(fracNow()); });
+  document.fonts?.ready.then(() => { if (!closed) relayout(fracNow(), anchorAt(p)); });
   document.addEventListener('fullscreenchange', onFs);
   root.requestFullscreen?.().catch(() => {}); // si el navegador no lo permite, queda a pantalla completa dentro de la ventana
   (layout === 'pages' ? spread : scroller).focus({ preventScroll: true });

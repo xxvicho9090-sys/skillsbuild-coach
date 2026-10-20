@@ -9,7 +9,7 @@ import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, a
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 import { openReader, docFromSheet, docFromBook } from './lib/reader.js';
 
-const APP_VERSION = '1.6.0'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.7.0'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
