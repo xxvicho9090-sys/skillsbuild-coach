@@ -5,11 +5,11 @@ import * as ollama from './lib/ollama.js';
 import { outline, coverage, wordCount, cleanText } from './lib/text.js';
 import { extractFile, ACCEPT, isImage } from './lib/files.js';
 import { recognize, stopOCR } from './lib/ocr.js';
-import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards, makeBook, bookMarkdown } from './lib/ai.js';
+import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards, makeBook, bookMarkdown, orderModule, orderCourse } from './lib/ai.js';
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
 import { openReader, docFromSheet, docFromBook } from './lib/reader.js';
 
-const APP_VERSION = '1.3.1'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.4.0'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -189,9 +189,9 @@ const statusOf = (m) => (m.done ? 'Terminado' : m.book ? (progressOf(m) > 0.02 ?
 function coverEl(m) {
   return h('div', { class: 'cover', style: `background:${coverBg(m.id)}` },
     h('div', { class: 'ct' }, m.book?.title || m.title),
-    h('div', null, h('div', { class: 'tag' }, kindOf(m)), h('div', { class: 'cp', style: 'margin-top:8px' }, h('i', { style: `width:${Math.round(progressOf(m) * 100)}%` }))));
+    h('div', null, h('div', { class: 'tag' }, m.seq ? `Parte ${m.seq}` : kindOf(m)), h('div', { class: 'cp', style: 'margin-top:8px' }, h('i', { style: `width:${Math.round(progressOf(m) * 100)}%` }))));
 }
-const bookLink = (c, m) => h('a', { class: 'book', href: `#/mod/${c.id}/${m.id}`, 'aria-label': `${m.book?.title || m.title}. ${statusOf(m)}` },
+const bookLink = (c, m) => h('a', { class: 'vol', href: `#/mod/${c.id}/${m.id}`, 'aria-label': `${m.book?.title || m.title}. ${statusOf(m)}` },
   coverEl(m), h('div', { class: 'meta' + (m.done ? ' ok' : '') }, statusOf(m)));
 const addTile = (label, fn) => h('button', { class: 'book-add', onclick: fn }, icon('upload'), label);
 
@@ -301,7 +301,9 @@ function viewCurso(cid) {
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn primary', onclick: () => openImport({ courseId: c.id }) }, icon('upload'), 'Importar aquí'),
       h('button', { class: 'btn', onclick: () => { const m = newModule('Nuevo libro'); c.modules.push(m); save(); go(`#/mod/${c.id}/${m.id}/apuntes`); } }, icon('plus'), 'Libro vacío'),
-      pending.length > 0 && h('button', { class: 'btn', onclick: () => processMany(c, pending) }, icon('spark'), `Ficha y preguntas para ${pending.length}`)),
+      pending.length > 0 && h('button', { class: 'btn', onclick: () => processMany(c, pending) }, icon('spark'), `Ficha y preguntas para ${pending.length}`),
+      c.modules.length > 1 && h('button', { class: 'btn', onclick: () => orderCourseUI(c) }, icon('books'), 'Ordenar el curso por contenido'),
+      c.modules.some((x) => x.text) && h('button', { class: 'btn', onclick: () => courseBookUI(c) }, icon('book'), 'Libro de todo el curso')),
     h('div', { class: 'shelf' }, c.modules.map((m) => bookLink(c, m)), addTile('Suelta PDFs o capturas', () => openImport({ courseId: c.id }))),
     h('button', { class: 'btn danger', style: 'align-self:flex-start', onclick: () => {
       if (!confirm(`¿Eliminar "${c.name}" con sus ${c.modules.length} libros y tarjetas? No se puede deshacer.`)) return;
@@ -357,6 +359,7 @@ function openImport({ courseId, modId } = {}) {
     h('option', { value: 'auto' }, 'Automático (cada 12 págs. si pasa de 30)'), h('option', { value: '0' }, 'No dividir'), h('option', { value: '8' }, 'Cada 8 páginas'), h('option', { value: '20' }, 'Cada 20 páginas'));
   const proc = h('input', { type: 'checkbox', checked: true });
   const bookChk = h('input', { type: 'checkbox', checked: true });
+  const ordChk = h('input', { type: 'checkbox', checked: true });
 
   const go_ = async () => {
     const text = paste.value.trim();
@@ -381,9 +384,9 @@ function openImport({ courseId, modId } = {}) {
             const parts = [];
             for (let k = 0; k < s.imgs.length; k++) {
               const x = await extractFile(s.imgs[k], (p, n, ph) => set(`Captura ${k + 1} de ${s.imgs.length} · ${ph || 'leyendo'}`, (i + (k + Math.min(1, p / n)) / s.imgs.length) / sources.length));
-              parts.push(x.text);
+              parts.push({ id: uid(), name: s.imgs[k].name, text: x.text });
             }
-            r = { name: title.el.value.trim() || `Capturas ${new Date().toLocaleDateString('es', { day: 'numeric', month: 'short' })}`, pages: null, text: parts.join('\n\n') };
+            r = { name: title.el.value.trim() || `Capturas ${new Date().toLocaleDateString('es', { day: 'numeric', month: 'short' })}`, pages: null, text: parts.map((x) => x.text).join(String.fromCharCode(10, 10)), frags: parts };
           } else if (s.f) r = await extractFile(s.f, prog);
           else r = { name: title.el.value.trim() || 'Apuntes pegados', pages: null, text: cleanText(s.text) };
           if (r.note) errors.push(`${label_}: ${r.note}`);
@@ -402,6 +405,7 @@ function openImport({ courseId, modId } = {}) {
             }
           } else {
             const m = newModule(r.name, r.text, s.f ? { name: s.f.name, pages: r.pages ? [1, r.pages.length] : null } : s.imgs ? { name: label_, pages: null } : null);
+            if (r.frags) m.frags = r.frags;
             course.modules.push(m); created.push(m);
           }
         } catch (e) { errors.push(`${label_}: ${e.message}`); }
@@ -412,9 +416,10 @@ function openImport({ courseId, modId } = {}) {
     if (errors.length) openModal('Avisos de la importación', h('div', { class: 'stack' }, ...errors.map((e) => h('p', { class: 'small' }, e)), h('button', { class: 'btn primary', onclick: closeModal }, 'Entendido')));
     if (!created.length) { render(); return; }
     toast(`Importado: ${plural(created.length, 'módulo', 'módulos')}`);
-    if ((bookChk.checked || proc.checked) && !modId) {
+    if ((bookChk.checked || proc.checked || ordChk.checked) && !modId) {
       if (ollama.ready() || (await ollama.refresh()).ok) {
-        if (bookChk.checked) await bookMany(created, { style: 'explained', lang: 'es' }, course);
+        if (ordChk.checked || bookChk.checked || proc.checked) await orderMany(created, course, ordChk.checked);
+        if (bookChk.checked) await bookMany(created, { style: 'explained', lang: 'es', verify: true }, course);
         if (proc.checked) await processMany(course, created);
       } else toast('Importado. Conecta Ollama para convertirlo en libro con IA.');
     }
@@ -426,6 +431,7 @@ function openImport({ courseId, modId } = {}) {
     drop, fileIn, list, title.field, h('label', { class: 'field' }, 'Texto', paste),
     !modId && h('label', { class: 'field' }, 'Guardar en', sel), !modId && newName.field,
     !modId && h('label', { class: 'field' }, 'PDFs largos', split),
+    !modId && h('label', { class: 'check' }, ordChk, 'Ordenar por lo que dice el contenido (no por el orden en que lo subí)'),
     !modId && h('label', { class: 'check' }, bookChk, 'Convertir en libro con IA (para leer)'),
     !modId && h('label', { class: 'check' }, proc, 'Crear ficha, glosario y preguntas con IA'),
     h('button', { class: 'btn primary block', onclick: go_ }, 'Importar')));
@@ -436,6 +442,39 @@ const findCourseOf = (mid) => S.courses.find((c) => c.modules.some((m) => m.id =
 /* ───────── Módulo ───────── */
 
 /* ───────── Libro ───────── */
+
+// Entiende y ordena los fragmentos (capturas) de cada módulo por su contenido; opcionalmente ordena los libros del curso.
+async function orderMany(mods, course, alsoCourse) {
+  const todo = mods.filter((m) => m.frags?.length > 1 && !m.plan);
+  if (!todo.length && !(alsoCourse && course && course.modules.length > 1)) return;
+  if (!(await needAI())) return;
+  await runAI(() => withBusy('Ordenando por contenido', async (set, signal) => {
+    for (let i = 0; i < todo.length; i++) {
+      await orderModule(todo[i], { signal, onProgress: (msg, p) => set(`${todo.length > 1 ? todo[i].title + ' · ' : ''}${msg}`, (i + p) / (todo.length + 1)) });
+    }
+    if (alsoCourse && course && course.modules.length > 1) {
+      set('Ordenando los libros del curso', todo.length / (todo.length + 1));
+      await orderCourse(course, { signal, onProgress: (msg, p) => set(msg, (todo.length + p) / (todo.length + 1)) });
+    }
+    return true;
+  }));
+}
+
+async function orderCourseUI(c) {
+  if (!(await needAI())) return;
+  const ok = await runAI(() => withBusy('Ordenando el curso por contenido', (set, signal) => orderCourse(c, { signal, onProgress: set })));
+  if (ok) { toast('Libros ordenados por su contenido'); render(); } else if (ok === false) toast('No pude decidir un orden: revisa los títulos de los libros.');
+}
+
+// Junta todo el curso en un solo libro: la IA agrupa los temas de todos los módulos y los ordena.
+async function courseBookUI(c) {
+  const mods = c.modules.filter((m) => m.text);
+  if (!mods.length) return;
+  const nm = newModule(`Libro del curso · ${c.name}`, mods.map((m) => m.text).join(String.fromCharCode(10, 10)));
+  nm.frags = mods.map((m) => ({ id: uid(), name: m.title, text: m.text }));
+  nm.seq = null;
+  openBookDialog(c, nm, () => { c.modules.push(nm); save(); });
+}
 
 async function bookMany(mods, opts, course) {
   if (!(await needAI())) return false;
@@ -449,15 +488,26 @@ async function bookMany(mods, opts, course) {
   return !!r;
 }
 
-function openBookDialog(c, m) {
+function openBookDialog(c, m, beforeCreate) {
   const style = h('select', { 'aria-label': 'Estilo del libro' },
     h('option', { value: 'explained' }, 'Explicado: capítulos, ejemplos e ideas clave (recomendado)'),
     h('option', { value: 'faithful' }, 'Fiel: solo ordenar y redactar lo que dicen mis apuntes'));
   const lang = h('select', { 'aria-label': 'Idioma' }, h('option', { value: 'es' }, 'En español (términos técnicos en inglés)'), h('option', { value: 'orig' }, 'En el idioma original'));
+  const models = ollama.status.models;
+  const biggest = [...models].sort((a, b) => b.size - a.size)[0];
+  const model = h('select', { 'aria-label': 'Modelo de IA' }, models.map((x) => h('option', { value: x.name, selected: x.name === S.settings.model }, `${x.name} · ${bytes(x.size)}${x.name === biggest?.name && models.length > 1 ? ' · mejor redacción, más lento' : ''}`)));
+  const verify = h('input', { type: 'checkbox', checked: true });
   openModal('Crear libro con IA', h('div', { class: 'stack' },
-    h('p', { class: 'small muted' }, `Tu Ollama (${S.settings.model || 'sin modelo'}) lee los apuntes por partes y escribe portada, introducción, capítulos y cierre. Con un modelo de 2 GB tarda cerca de 15–30 s por capítulo. Puedes cancelar.`),
+    h('p', { class: 'small muted' }, 'La IA entiende de qué trata cada fragmento, los agrupa por tema, decide el orden lógico (aunque las capturas lleguen desordenadas), escribe un capítulo por tema y lo revisa contra tu material. Puedes cancelar.'),
     h('label', { class: 'field' }, 'Estilo', style), h('label', { class: 'field' }, 'Idioma', lang),
-    h('button', { class: 'btn primary block', onclick: async () => { closeModal(); if (await bookMany([m], { style: style.value, lang: lang.value }, c)) { go(`#/mod/${c.id}/${m.id}/libro`); render(); } } }, icon('book'), 'Crear libro')));
+    models.length > 0 && h('label', { class: 'field' }, 'Modelo', model),
+    h('label', { class: 'check' }, verify, 'Revisar cada capítulo contra mi material (más lento, más fiel)'),
+    h('button', { class: 'btn primary block', onclick: async () => {
+      closeModal();
+      if (m.frags?.length > 1) m.plan = null; // se vuelve a ordenar con lo último que dicen los apuntes
+      beforeCreate?.();
+      if (await bookMany([m], { style: style.value, lang: lang.value, model: model.value || undefined, verify: verify.checked }, c)) { go(`#/mod/${c.id}/${m.id}/libro`); render(); }
+    } }, icon('book'), 'Crear libro')));
 }
 
 function tabLibro(c, m) {
@@ -472,6 +522,7 @@ function tabLibro(c, m) {
   const b = m.book, d = docFromBook(m);
   return h('div', { class: 'stack' },
     h('button', { class: 'btn primary block', onclick: () => openReader(m, 'libro') }, icon('book'), 'Leer como libro en pantalla completa'),
+    m.plan && h('div', { class: 'note' }, h('div', { class: 'k' }, 'ORDENADO POR CONTENIDO'), `La IA leyó ${plural(m.frags?.length || 0, 'fragmento', 'fragmentos')}, entendió de qué trata cada uno y los acomodó en ${plural(m.plan.groups.length, 'tema', 'temas')} en orden lógico${m.plan.changed ? '; el orden final no es el de las capturas' : ''}.`),
     b.truncated > 0 && h('div', { class: 'callout small' }, `El texto era largo: se escribieron los primeros ${b.chapters.length} capítulos de ${b.truncated} partes. Divide el documento en módulos más cortos para cubrirlo todo.`),
     b.fallbacks > 0 && h('div', { class: 'callout small' }, `${plural(b.fallbacks, 'capítulo conserva', 'capítulos conservan')} el texto original porque la IA no logró reescribirlo bien. Prueba "Volver a escribir".`),
     h('div', { class: 'sheet-card book-preview' }, h('div', { class: 'reader-doc book' }, d.nodes)),

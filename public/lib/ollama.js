@@ -26,7 +26,7 @@ async function http(path, init) {
   try {
     return await fetch(base() + path, init);
   } catch (e) {
-    if (e.name === 'AbortError') throw e;
+    if (e.name === 'AbortError' || e.name === 'TimeoutError') throw e;
     // ¿Ollama está corriendo pero bloquea este origen (CORS), o no responde?
     let running = false;
     try { await fetch(base() + '/api/version', { mode: 'no-cors', signal: AbortSignal.timeout(2500) }); running = true; } catch { /* no responde */ }
@@ -71,17 +71,19 @@ export async function refresh(retried = false) {
 export const ready = () => status.ok && !!S.settings.model;
 
 // schema: JSON schema → salida estructurada. onToken: respuesta en streaming.
-export async function chat({ system, user, schema, onToken, signal, temperature }) {
-  if (!S.settings.model) throw new OllamaError('model', 'Elige un modelo en Ajustes.');
+export async function chat({ system, user, schema, onToken, signal, temperature, model }) {
+  if (!model && !S.settings.model) throw new OllamaError('model', 'Elige un modelo en Ajustes.');
   const body = {
-    model: S.settings.model,
+    model: model || S.settings.model,
     stream: !!onToken,
     keep_alive: '30m',
     messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-    options: { num_ctx: S.settings.ctx, temperature: temperature ?? (schema ? 0.2 : 0.5) },
+    // tope de tokens: evita que un modelo chico se quede repitiendo para siempre
+    options: { num_ctx: S.settings.ctx, temperature: temperature ?? (schema ? 0.2 : 0.5), num_predict: schema ? 1800 : 1500 },
   };
   if (schema) body.format = schema;
-  const res = await http('/api/chat', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(body), signal });
+  const limit = AbortSignal.timeout(schema ? 150000 : 300000);
+  const res = await http('/api/chat', { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(body), signal: signal ? AbortSignal.any([signal, limit]) : limit });
   if (!res.ok) throw await failure(res);
   if (!onToken) return (await res.json()).message?.content ?? '';
   const reader = res.body.getReader();

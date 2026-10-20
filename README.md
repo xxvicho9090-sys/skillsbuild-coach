@@ -5,10 +5,12 @@ PWA para estudiar cursos (pensada para IBM SkillsBuild): **ordena tus apuntes, P
 ## Qué hace
 
 - **Importa** PDF, Word (.docx), .txt/.md, texto pegado y **capturas de pantalla** (arrástralas o pega con Ctrl+V). Los PDF escaneados y las imágenes se leen con OCR local (español + inglés).
-- **Ordena con IA**: ficha de estudio (resumen + ideas clave por tema), glosario inglés→español, preguntas de opción múltiple y tarjetas.
-- **Estudia**: quiz con explicación, método Feynman (cobertura de conceptos + evaluación), mini proyecto por módulo y repaso espaciado (10 min · 1 · 3 · 7 · 14 · 30 · 60 días).
+- **Ordena por lo que dice el contenido**, no por el orden en que subiste las capturas: la IA lee cada fragmento, entiende de qué trata, une las frases cortadas entre capturas, agrupa por tema y decide la secuencia lógica (introducción → conceptos → desarrollo → aplicaciones → conclusión; respeta la numeración si el texto la trae). También puede ordenar los libros de un curso y armar un libro con todo el curso.
+- **Escribe un libro de verdad**: portada, índice, introducción, un capítulo por tema (explicado, con idea clave y "para recordar") y cierre. Cada capítulo se revisa contra tu material y se descartan las oraciones que el material no respalda. Elige el modelo (uno más grande redacta mejor).
+- **Lector a pantalla completa con hojas**: dos hojas abiertas, números de página, título corrido, capítulos que empiezan en hoja nueva. Pasa hojas con flechas, rueda, deslizando o la barra inferior; zoom (botones, Ctrl+rueda, pellizco, doble clic), vista general de todas las hojas, índice, tamaño de letra y modo continuo.
+- **Estudia**: ficha con glosario, quiz con explicación, método Feynman, mini proyecto por módulo y repaso espaciado (10 min · 1 · 3 · 7 · 14 · 30 · 60 días).
 - **Sin IA también sirve**: lectura, índice detectado, búsqueda, tarjetas manuales y repaso funcionan aunque Ollama esté apagado.
-- **Instalable** (PWA), funciona sin conexión y **se actualiza sola**: avisa "Hay una versión nueva" y se recarga con un toque.
+- **Instalable** (PWA) o como **app de escritorio**, funciona sin conexión y **se actualiza sola**.
 - Copia de seguridad en JSON (Ajustes).
 
 ## App de escritorio (Windows) · Ollama integrado
