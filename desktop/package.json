@@ -1,0 +1,17 @@
+{
+  "name": "skillsbuild-coach-desktop",
+  "productName": "SkillsBuild Coach",
+  "version": "1.3.0",
+  "description": "App de escritorio de SkillsBuild Coach: detecta tu Ollama automáticamente, sin servidor ni configuración.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "prepare-web": "node prepare.mjs",
+    "start": "node prepare.mjs && electron .",
+    "pack": "node prepare.mjs && electron-packager . \"SkillsBuild Coach\" --platform=win32 --arch=x64 --out=dist --overwrite --icon=icon.ico --prune=true --ignore=\"^/dist|^/prepare.mjs\" --app-copyright=\"SkillsBuild Coach\""
+  },
+  "devDependencies": {
+    "@electron/packager": "^18.3.6",
+    "electron": "^33.2.0"
+  }
+}

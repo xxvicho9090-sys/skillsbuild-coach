@@ -1,6 +1,7 @@
 // Publica una versión nueva: node scripts/release.mjs 1.1.0 "Qué cambió"
 // Actualiza app.js, sw.js y version.json para que las PWA instaladas detecten la actualización.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { buildManifest } from './files-manifest.mjs';
 
 const [version, ...rest] = process.argv.slice(2);
 const note = rest.join(' ').trim();
@@ -21,4 +22,5 @@ const meta = JSON.parse(readFileSync(file('version.json'), 'utf8'));
 const notes = [note, ...(meta.notes || [])].slice(0, 5);
 writeFileSync(file('version.json'), JSON.stringify({ version, date: new Date().toISOString().slice(0, 10), notes }, null, 2) + '\n');
 
+buildManifest(version);
 console.log(`Versión ${version} lista. Haz commit y push: Render la publica y las apps instaladas mostrarán "Hay una versión nueva".`);

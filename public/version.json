@@ -1,11 +1,11 @@
 {
-  "version": "1.2.1",
+  "version": "1.3.0",
   "date": "2026-10-20",
   "notes": [
+    "Rediseño completo, libros con IA para leer a pantalla completa y app de escritorio.",
     "La web publicada detecta tu versión local y te ofrece abrirla (sin configurar Ollama).",
     "Modo local integrado: Iniciar-Coach conecta con tu Ollama sin configurar nada (también desde el celular con --lan).",
     "Botón para instalar la app en la pantalla Hoy.",
-    "Mensaje de conexión más claro cuando falta el permiso OLLAMA_ORIGINS.",
-    "Primera versión: importa PDF, Word y texto, ordena apuntes con IA local, quizzes y repaso espaciado."
+    "Mensaje de conexión más claro cuando falta el permiso OLLAMA_ORIGINS."
   ]
 }

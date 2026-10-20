@@ -5,10 +5,11 @@ import * as ollama from './lib/ollama.js';
 import { outline, coverage, wordCount, cleanText } from './lib/text.js';
 import { extractFile, ACCEPT, isImage } from './lib/files.js';
 import { recognize, stopOCR } from './lib/ocr.js';
-import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards } from './lib/ai.js';
+import { processModule, moreQuestions, evaluateFeynman, askTutor, makeProject, addCards, conceptCards, makeBook, bookMarkdown } from './lib/ai.js';
 import { dueCards, grade, label, removeCards } from './lib/srs.js';
+import { openReader, docFromSheet, docFromBook } from './lib/reader.js';
 
-const APP_VERSION = '1.2.1'; // lo mantiene scripts/release.mjs
+const APP_VERSION = '1.3.0'; // lo mantiene scripts/release.mjs
 const app = $('#app');
 
 /* ───────── utilidades de interfaz ───────── */
@@ -69,10 +70,13 @@ const localCard = () => !localApp || ollama.ready() ? null : h('div', { class: '
 function ollamaHelp() {
   const origin = location.origin;
   const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-  const hosted = !local && !ollama.integrated.on;
+  const dk = ollama.desktop.on;
+  const hosted = !local && !ollama.integrated.on && !dk;
   const model = S.settings.model || 'qwen2.5:3b';
   const kindMsg = {
-    down: ollama.integrated.on || local
+    down: dk
+      ? (ollama.status.installed ? 'Ollama está instalado pero no logré iniciarlo. Ábrelo desde el menú Inicio y vuelve a probar.' : 'No encuentro Ollama en este PC. Instálalo y esta app lo detectará sola.')
+      : ollama.integrated.on || local
       ? 'No encuentro Ollama. Ábrelo (icono en la bandeja) o inícialo con "ollama serve".'
       : 'No logro conectar con Ollama desde esta web. Usa la versión local integrada (opción A) o da el permiso (opción B).',
     origin: 'Ollama está activo, pero bloquea esta web. Usa la versión local integrada (opción A) o da el permiso (opción B).',
@@ -85,13 +89,19 @@ function ollamaHelp() {
   const retry = h('button', { class: 'btn primary', onclick: async (e) => { e.target.disabled = true; await ollama.refresh(); e.target.disabled = false; ollama.ready() ? (closeModal(), toast('Conectado a Ollama'), render()) : toast(ollama.status.error || 'Aún sin conexión'); } }, 'Probar conexión');
   return h('div', { class: 'stack' },
     kindMsg && h('div', { class: 'callout' }, kindMsg),
+    dk && !ollama.status.installed && h('div', { class: 'card stack', style: 'gap:10px' },
+      h('strong', null, 'Instala Ollama (una sola vez)'),
+      h('p', { class: 'small muted' }, 'Descárgalo, instálalo y vuelve aquí: la app lo detecta y lo inicia sola, sin configurar nada.'),
+      h('button', { class: 'btn', onclick: () => window.sbcNative.openExternal('https://ollama.com/download') }, icon('download'), 'Abrir ollama.com/download')),
+    dk && ollama.status.installed && h('p', { class: 'small muted' }, 'App de escritorio: Ollama se detecta e inicia automáticamente; no hay nada que configurar.'),
     ollama.integrated.on && h('p', { class: 'small muted' }, 'Modo local integrado: la app ya se conecta sola a tu Ollama, sin configurar nada más.'),
     (ollama.status.kind === 'model' || !ollama.status.models.length) && code('Instala el modelo de 2 GB', 'ollama pull qwen2.5:3b'),
     hosted && h('div', { class: 'card stack', style: 'gap:10px' },
-      h('strong', null, 'Opción A · Versión local integrada (recomendada)'),
+      h('strong', null, 'Opción A · App de escritorio (recomendada)'),
       localApp && h('div', { class: 'small', style: 'color:var(--ok)' }, '✓ Detecté que ya está corriendo en tu PC.'),
-      h('p', { class: 'small muted' }, 'Haz doble clic en «Iniciar-Coach» dentro de la carpeta SkillsBuildCoach de tu PC. Abre esta misma app en tu computador y se conecta a Ollama sin tocar ninguna configuración (incluso inicia Ollama si está apagado).'),
-      h('a', { class: 'btn', href: 'http://localhost:5173/', target: '_blank', rel: 'noopener' }, 'Abrir versión local'),
+      h('p', { class: 'small muted' }, 'Descarga la app de Windows: es esta misma app en su propia ventana, detecta tu Ollama sola (incluso lo inicia si está apagado) y se actualiza sola. No hay que configurar nada.'),
+      h('a', { class: 'btn primary', href: 'https://github.com/xxvicho9090-sys/skillsbuild-coach/releases/latest', target: '_blank', rel: 'noopener' }, icon('download'), 'Descargar app de escritorio'),
+      h('p', { class: 'small muted' }, '¿Ya usas «Iniciar-Coach»? También sirve: abre la versión local en http://localhost:5173.'),
       h('p', { class: 'small muted' }, 'Tus datos de esta web y los de la versión local son independientes: pásalos con Exportar/Importar en Ajustes.')),
     hosted && h('div', { class: 'card stack', style: 'gap:10px' },
       h('strong', null, 'Opción B · Permitir esta web en Ollama'),
@@ -122,20 +132,40 @@ async function runAI(fn) {
 
 /* ───────── navegación ───────── */
 
+function brandIcon() {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', '0 0 24 24');
+  s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/><path d="M12 4v6l2-1.4L16 10V4"/>';
+  return s;
+}
+
+const pill = () => h('a', { class: 'pill', href: '#/ajustes', title: 'Estado de Ollama' },
+  h('span', { class: `dot ${ollama.ready() ? 'ok' : 'bad'}` }),
+  h('span', { class: 'grow' }, ollama.ready() ? 'Ollama conectado' : ollama.status.checked ? 'IA sin conexión' : 'Conectando…'),
+  ollama.ready() && h('span', { class: 'muted' }, S.settings.model));
+
 function renderNav(route) {
   const due = dueCards().length;
-  const items = [['hoy', 'Hoy', 'home'], ['cursos', 'Cursos', 'book'], ['repaso', 'Repaso', 'cards'], ['ajustes', 'Ajustes', 'gear']];
-  $('#nav').replaceChildren(...items.map(([r, t, ic]) => h('a', { href: '#/' + r, 'aria-current': route === r ? 'page' : null },
-    icon(ic), t, r === 'repaso' && due > 0 ? h('span', { class: 'due', 'aria-label': `${due} por repasar` }, due > 99 ? '99+' : due) : null)));
+  const items = [['hoy', 'Biblioteca', 'books'], ['repaso', 'Repaso', 'cards'], ['ajustes', 'Ajustes', 'gear']];
+  $('#side').replaceChildren(
+    h('a', { class: 'brand', href: '#/hoy' }, brandIcon(), 'Coach'),
+    h('nav', { 'aria-label': 'Principal' }, ...items.map(([r, t, ic]) => h('a', { href: '#/' + r, 'aria-current': route === r ? 'page' : null },
+      icon(ic), t, r === 'repaso' && due > 0 ? h('span', { class: 'due', 'aria-label': `${due} por repasar` }, due > 99 ? '99+' : due) : null))),
+    h('div', { class: 'side-foot' }, h('button', { class: 'btn primary', onclick: () => openImport() }, icon('plus'), 'Nuevo libro'), pill()));
+  const fab = $('#fab');
+  fab.hidden = route !== 'hoy';
+  fab.replaceChildren(icon('plus'));
+  fab.onclick = () => openImport();
 }
 
 function render() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   const route = parts[0] || 'hoy';
-  const views = { hoy: viewHoy, cursos: viewCursos, curso: viewCurso, mod: viewMod, repaso: viewRepaso, ajustes: viewAjustes };
-  const nav = { hoy: 'hoy', cursos: 'cursos', curso: 'cursos', mod: 'cursos', repaso: 'repaso', ajustes: 'ajustes' }[route] || 'hoy';
+  const views = { hoy: viewBiblioteca, cursos: viewBiblioteca, curso: viewCurso, mod: viewMod, repaso: viewRepaso, ajustes: viewAjustes };
+  const nav = { hoy: 'hoy', cursos: 'hoy', curso: 'hoy', mod: 'hoy', repaso: 'repaso', ajustes: 'ajustes' }[route] || 'hoy';
   let el;
-  try { el = (views[route] || viewHoy)(...parts.slice(1)); }
+  try { el = (views[route] || viewBiblioteca)(...parts.slice(1)); }
   catch (e) { console.error(e); el = h('div', { class: 'empty' }, h('h3', null, 'Algo salió mal'), h('p', null, e.message)); }
   app.replaceChildren(el);
   renderNav(nav);
@@ -144,70 +174,36 @@ function render() {
 }
 addEventListener('hashchange', render);
 
-/* ───────── Hoy ───────── */
+/* ───────── Biblioteca ───────── */
 
-const pill = () => h('a', { class: 'pill', href: '#/ajustes', title: 'Estado de Ollama' },
-  h('span', { class: `dot ${ollama.ready() ? 'ok' : 'bad'}` }),
-  ollama.ready() ? S.settings.model : ollama.status.checked ? 'IA sin conexión' : 'Conectando…');
+const COVERS = ['#2f5d50', '#7a3b2e', '#2e4a6b', '#8a6a2f', '#4f3b6b', '#3d3d3a'];
+const coverBg = (id) => COVERS[[...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % COVERS.length];
+const progressOf = (m) => {
+  if (m.done) return 1;
+  const p = m.readPos || {};
+  return Math.max(0, Math.min(1, p[m.readMode || 'libro'] ?? Math.max(0, ...Object.values(p))));
+};
+const kindOf = (m) => (m.book ? 'Libro de estudio' : m.sheet ? 'Ficha' : 'Apuntes');
+const statusOf = (m) => (m.done ? 'Terminado' : m.book ? (progressOf(m) > 0.02 ? `${Math.round(progressOf(m) * 100)}% leído` : 'Listo para leer') : m.text ? 'Sin convertir en libro' : 'Vacío');
+
+function coverEl(m) {
+  return h('div', { class: 'cover', style: `background:${coverBg(m.id)}` },
+    h('div', { class: 'ct' }, m.book?.title || m.title),
+    h('div', null, h('div', { class: 'tag' }, kindOf(m)), h('div', { class: 'cp', style: 'margin-top:8px' }, h('i', { style: `width:${Math.round(progressOf(m) * 100)}%` }))));
+}
+const bookLink = (c, m) => h('a', { class: 'book', href: `#/mod/${c.id}/${m.id}`, 'aria-label': `${m.book?.title || m.title}. ${statusOf(m)}` },
+  coverEl(m), h('div', { class: 'meta' + (m.done ? ' ok' : '') }, statusOf(m)));
+const addTile = (label, fn) => h('button', { class: 'book-add', onclick: fn }, icon('upload'), label);
 
 function planFor(c) {
   if (!c.deadline) return null;
   const left = c.modules.filter((m) => !m.done).length;
   if (!left) return null;
   const days = Math.ceil((new Date(c.deadline + 'T23:59:59') - Date.now()) / 86400000);
-  if (days <= 0) return `${c.name}: la fecha ya pasó y faltan ${plural(left, 'módulo', 'módulos')}.`;
+  if (days <= 0) return `${c.name}: la fecha ya pasó y faltan ${plural(left, 'libro', 'libros')}.`;
   const perWeek = Math.max(1, Math.ceil(left / Math.max(days / 7, 1)));
-  return `${c.name}: ${perWeek} ${perWeek === 1 ? 'módulo' : 'módulos'} por semana para llegar al ${fmtDate(new Date(c.deadline + 'T12:00:00'))}.`;
+  return `${c.name}: ${perWeek} ${perWeek === 1 ? 'libro' : 'libros'} por semana para llegar al ${fmtDate(new Date(c.deadline + 'T12:00:00'))}.`;
 }
-
-function viewHoy() {
-  const due = dueCards().length;
-  const mods = allModules();
-  const next = mods.find((x) => !x.mod.done);
-  const doneN = mods.filter((x) => x.mod.done).length;
-  const plans = S.courses.map(planFor).filter(Boolean);
-  const head = h('div', { class: 'row between' },
-    h('div', { class: 'row' },
-      h('img', { src: 'icon.svg', width: 34, height: 34, alt: '', style: 'border-radius:10px' }),
-      h('strong', { style: 'font-size:17px' }, 'SkillsBuild Coach')),
-    pill());
-  const date = h('div', { class: 'eyebrow' }, new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'short' }));
-
-  if (!S.courses.length) {
-    return h('div', { class: 'stack' }, head, localCard(), installCard(), date,
-      h('h1', null, 'Manda tus apuntes y yo los ordeno.'),
-      h('p', { class: 'muted' }, 'Importa los PDF, documentos o textos de tu curso de IBM SkillsBuild. La IA local los convierte en fichas ordenadas, conceptos, quizzes y tarjetas de repaso.'),
-      h('div', { class: 'card stack' },
-        h('div', { class: 'row' }, h('span', { class: 'eyebrow' }, '1 · Importa'), h('span', { class: 'muted small' }, 'PDF, Word, texto o pegado')),
-        h('div', { class: 'row' }, h('span', { class: 'eyebrow' }, '2 · Ordena'), h('span', { class: 'muted small' }, 'ficha, glosario y preguntas')),
-        h('div', { class: 'row' }, h('span', { class: 'eyebrow' }, '3 · Repasa'), h('span', { class: 'muted small' }, 'tarjetas con repetición espaciada')),
-        h('button', { class: 'btn primary block', onclick: () => openImport() }, icon('upload'), 'Importar mis apuntes')),
-      !ollama.ready() && h('div', { class: 'callout' }, 'Para ordenar con IA conecta Ollama. ', h('a', { href: '#/ajustes' }, 'Ver cómo')));
-  }
-
-  return h('div', { class: 'stack' }, head, localCard(), installCard(), date,
-    h('h1', null, due ? 'Hoy toca repasar antes de avanzar.' : 'Estás al día. Avanza con un módulo.'),
-    h('div', { class: 'card stack' },
-      h('div', { class: 'row', style: 'align-items:baseline' },
-        h('span', { class: 'big' }, due),
-        h('span', { class: 'muted' }, due ? `${plural(due, 'tarjeta', 'tarjetas')} por repasar · ≈ ${Math.max(1, Math.round(due * 0.5))} min` : 'Nada pendiente por ahora')),
-      h('a', { class: 'btn primary block', href: '#/repaso', 'aria-disabled': due ? null : 'true', style: due ? '' : 'opacity:.5;pointer-events:none' }, 'Empezar repaso')),
-    h('div', { class: 'grid3' },
-      h('div', { class: 'stat' }, h('b', { style: 'color:var(--warn)' }, streak()), h('span', null, 'días de racha')),
-      h('div', { class: 'stat' }, h('b', null, S.cards.length), h('span', null, 'tarjetas')),
-      h('div', { class: 'stat' }, h('b', { style: 'color:var(--ok)' }, `${doneN}/${mods.length}`), h('span', null, 'módulos'))),
-    next && h('a', { class: 'card link stack', style: 'gap:10px', href: `#/mod/${next.course.id}/${next.mod.id}` },
-      h('div', { class: 'eyebrow' }, 'Siguiente módulo'),
-      h('div', { style: 'font-size:17px;font-weight:600;line-height:1.3' }, next.mod.title),
-      h('div', { class: 'muted small' }, next.course.name),
-      h('div', { class: 'bar' }, h('i', { style: `width:${mods.length ? Math.round(doneN / mods.length * 100) : 0}%` })),
-      !next.mod.processedAt && h('div', { class: 'small', style: 'color:var(--warn)' }, 'Aún sin ordenar con IA')),
-    plans.length > 0 && h('div', { class: 'card stack', style: 'gap:8px' }, h('div', { class: 'eyebrow' }, 'Ritmo sugerido'), ...plans.map((p) => h('div', { class: 'small' }, p))),
-    h('button', { class: 'btn', onclick: () => openImport() }, icon('upload'), 'Importar apuntes o PDF'),
-    !ollama.ready() && h('div', { class: 'callout' }, 'La IA local no está conectada: repaso y lectura funcionan, pero ordenar y generar preguntas necesita Ollama. ', h('a', { href: '#/ajustes' }, 'Ver cómo conectarla')));
-}
-
-/* ───────── Cursos ───────── */
 
 function openNewCourse(after) {
   const name = input('Nombre del curso', { placeholder: 'Ej. IA Generativa con IBM', maxlength: 80 });
@@ -222,66 +218,94 @@ function openNewCourse(after) {
   openModal('Nuevo curso', h('div', { class: 'stack' }, name.field, date.field, h('button', { class: 'btn primary block', onclick: create }, 'Crear curso')));
 }
 
-function viewCursos() {
-  const q = h('input', { class: 'input', type: 'search', placeholder: 'Buscar en todos tus apuntes…', 'aria-label': 'Buscar en apuntes' });
-  const results = h('div', { class: 'list' });
-  const draw = () => {
-    const term = q.value.trim().toLowerCase();
-    if (!term) {
-      results.replaceChildren(...(S.courses.length ? S.courses.map(courseCard) : [h('div', { class: 'empty' }, h('h3', null, 'Aún no tienes cursos'), h('p', null, 'Crea uno o importa tus apuntes y se crea solo.'))]));
-      return;
+function viewBiblioteca() {
+  const due = dueCards().length;
+  const mods = allModules();
+  const doneN = mods.filter((x) => x.mod.done).length;
+  const plans = S.courses.map(planFor).filter(Boolean);
+  const last = mods.filter((x) => x.mod.lastRead && !x.mod.done).sort((a, b) => b.mod.lastRead - a.mod.lastRead)[0]
+    || mods.find((x) => !x.mod.done && x.mod.text);
+
+  const q = h('input', { type: 'search', placeholder: 'Buscar en tus libros', 'aria-label': 'Buscar en tus libros' });
+  const body = h('div', { class: 'stack', style: 'gap:28px' });
+  const head = h('div', { class: 'lib-head' },
+    h('div', null, h('div', { class: 'eyebrow' }, new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' })), h('h1', { style: 'margin-top:6px' }, 'Tu biblioteca')),
+    h('div', { class: 'tools' }, h('label', { class: 'search' }, icon('search'), q), h('button', { class: 'btn primary', onclick: () => openImport() }, icon('plus'), 'Nuevo libro')));
+
+  const shelves = () => {
+    if (!S.courses.length) {
+      return [h('div', { class: 'empty' },
+        h('h3', null, 'Tu biblioteca está vacía'),
+        h('p', null, 'Manda PDFs, documentos o capturas de pantalla de tu curso y la IA los convierte en un libro para leer, con quiz y tarjetas de repaso.'),
+        h('div', { class: 'row', style: 'justify-content:center;margin-top:16px' }, h('button', { class: 'btn primary', onclick: () => openImport() }, icon('upload'), 'Importar apuntes')))];
     }
-    const hits = allModules().filter(({ mod }) => (mod.title + ' ' + mod.text).toLowerCase().includes(term)).slice(0, 30);
-    results.replaceChildren(...(hits.length ? hits.map(({ course, mod }) => {
+    return S.courses.map((c) => h('section', { class: 'stack', style: 'gap:14px' },
+      h('div', { class: 'shelf-head' }, h('h2', null, h('a', { href: '#/curso/' + c.id }, c.name)), h('span', { class: 'muted small' }, `${plural(c.modules.length, 'libro', 'libros')}${c.deadline ? ` · meta ${fmtDate(new Date(c.deadline + 'T12:00:00'))}` : ''}`)),
+      h('div', { class: 'shelf' }, c.modules.map((m) => bookLink(c, m)), addTile('Suelta PDFs o capturas', () => openImport({ courseId: c.id })))));
+  };
+
+  const results = (term) => {
+    const hits = mods.filter(({ mod }) => (mod.title + ' ' + mod.text + ' ' + (mod.book?.title || '')).toLowerCase().includes(term)).slice(0, 30);
+    return hits.length ? [h('div', { class: 'list' }, hits.map(({ course, mod }) => {
       const i = mod.text.toLowerCase().indexOf(term);
       const snip = i >= 0 ? '…' + mod.text.slice(Math.max(0, i - 50), i + 90).replace(/\s+/g, ' ') + '…' : '';
       return h('a', { class: 'item', href: `#/mod/${course.id}/${mod.id}` }, h('div', { class: 'grow' }, h('div', { class: 't' }, mod.title), h('div', { class: 'small muted' }, course.name), snip && h('div', { class: 'small muted' }, snip)));
-    }) : [h('div', { class: 'empty' }, 'Sin resultados.')]));
+    }))] : [h('div', { class: 'empty' }, 'Sin resultados.')];
+  };
+
+  const draw = () => {
+    const term = q.value.trim().toLowerCase();
+    if (term) { body.replaceChildren(...results(term)); return; }
+    body.replaceChildren(...[
+      localCard(), installCard(),
+      last && h('section', { class: 'hero' },
+        h('div', { style: 'width:104px;flex:none' }, coverEl(last.mod)),
+        h('div', { class: 'stack grow', style: 'gap:8px' },
+          h('div', { class: 'eyebrow' }, last.mod.lastRead ? 'Continúa donde lo dejaste' : 'Empieza por aquí'),
+          h('h2', null, last.mod.book?.title || last.mod.title),
+          h('div', { class: 'sub' }, `${last.course.name} · ${statusOf(last.mod)}`),
+          h('div', { class: 'bar' }, h('i', { style: `width:${Math.round(progressOf(last.mod) * 100)}%` })),
+          h('div', { class: 'row wrap', style: 'margin-top:4px' },
+            h('a', { class: 'btn light', href: `#/mod/${last.course.id}/${last.mod.id}` }, last.mod.book ? 'Abrir libro' : 'Abrir'),
+            due > 0 && h('a', { class: 'btn line', href: '#/repaso' }, `Repasar ${plural(due, 'tarjeta', 'tarjetas')}`)))),
+      !last && due > 0 && h('div', { class: 'strip' }, h('div', null, h('strong', null, plural(due, 'tarjeta por repasar', 'tarjetas por repasar')), h('div', { class: 'small muted' }, `≈ ${Math.max(1, Math.round(due * 0.5))} min`)), h('a', { class: 'btn primary', href: '#/repaso' }, 'Repasar')),
+      plans.length > 0 && h('div', { class: 'card stack', style: 'gap:6px' }, h('div', { class: 'eyebrow' }, 'Ritmo sugerido'), ...plans.map((p) => h('div', { class: 'small' }, p))),
+      !ollama.ready() && S.courses.length > 0 && h('div', { class: 'callout' }, 'La IA local no está conectada: leer y repasar funciona, pero crear libros y preguntas necesita Ollama. ', h('a', { href: '#/ajustes' }, 'Ver cómo conectarla')),
+      ...shelves(),
+      S.courses.length > 0 && h('div', { class: 'grid3' },
+        h('div', { class: 'stat' }, h('b', { style: 'color:var(--warn)' }, streak()), h('span', null, 'días de racha')),
+        h('div', { class: 'stat' }, h('b', null, S.cards.length), h('span', null, 'tarjetas')),
+        h('div', { class: 'stat' }, h('b', { style: 'color:var(--ok)' }, `${doneN}/${mods.length}`), h('span', null, 'libros terminados'))),
+      S.courses.length > 0 && h('button', { class: 'btn', style: 'align-self:flex-start', onclick: () => openNewCourse() }, icon('plus'), 'Nuevo curso'),
+    ].filter(Boolean));
   };
   q.addEventListener('input', draw);
   draw();
-  return h('div', { class: 'stack' },
-    h('div', { class: 'row between' }, h('h1', null, 'Cursos'),
-      h('div', { class: 'row' }, h('button', { class: 'btn small', onclick: () => openNewCourse() }, icon('plus'), 'Curso'), h('button', { class: 'btn small primary', onclick: () => openImport() }, icon('upload'), 'Importar'))),
-    q, results);
-}
-
-function courseCard(c) {
-  const done = c.modules.filter((m) => m.done).length;
-  const pct = c.modules.length ? Math.round(done / c.modules.length * 100) : 0;
-  return h('a', { class: 'card link stack', style: 'gap:10px', href: '#/curso/' + c.id },
-    h('div', { class: 'row between' }, h('h3', null, c.name), h('span', { class: 'mono small muted' }, `${done}/${c.modules.length}`)),
-    h('div', { class: 'bar' + (pct === 100 ? ' ok' : '') }, h('i', { style: `width:${pct}%` })),
-    h('div', { class: 'small muted' }, c.deadline ? `Meta: ${fmtDate(new Date(c.deadline + 'T12:00:00'))}` : 'Sin fecha objetivo'));
+  return h('div', { class: 'stack', style: 'gap:28px' }, head, body);
 }
 
 function viewCurso(cid) {
   const c = findCourse(cid);
-  if (!c) return h('div', { class: 'empty' }, h('h3', null, 'Curso no encontrado'), h('a', { href: '#/cursos' }, 'Volver a cursos'));
+  if (!c) return h('div', { class: 'empty' }, h('h3', null, 'Curso no encontrado'), h('a', { href: '#/hoy' }, 'Volver a la biblioteca'));
   const done = c.modules.filter((m) => m.done).length;
   const pending = c.modules.filter((m) => !m.processedAt && m.text);
-  const name = h('input', { class: 'input', value: c.name, 'aria-label': 'Nombre del curso', maxlength: 80, style: 'font-size:20px;font-weight:600' });
+  const name = h('input', { class: 'input', value: c.name, 'aria-label': 'Nombre del curso', maxlength: 80, style: 'font:500 30px var(--display);min-height:56px;letter-spacing:-.01em' });
   name.addEventListener('change', () => { c.name = name.value.trim() || c.name; save(); });
   const date = h('input', { class: 'input', type: 'date', value: c.deadline || '', 'aria-label': 'Fecha objetivo' });
   date.addEventListener('change', () => { c.deadline = date.value; save(); render(); });
-  return h('div', { class: 'stack' },
-    h('a', { class: 'back', href: '#/cursos' }, icon('back'), 'Cursos'),
+  return h('div', { class: 'stack', style: 'gap:22px' },
+    h('a', { class: 'back', href: '#/hoy' }, icon('back'), 'Biblioteca'),
     name,
-    h('div', { class: 'row wrap' }, h('label', { class: 'field grow' }, 'Fecha objetivo', date),
-      h('div', { class: 'field grow' }, 'Avance', h('div', { class: 'row', style: 'min-height:44px' }, h('div', { class: 'bar grow' + (done === c.modules.length && done ? ' ok' : '') }, h('i', { style: `width:${c.modules.length ? Math.round(done / c.modules.length * 100) : 0}%` })), h('span', { class: 'mono small' }, `${done}/${c.modules.length}`)))),
+    h('div', { class: 'row wrap' }, h('label', { class: 'field', style: 'min-width:200px' }, 'Fecha objetivo', date),
+      h('div', { class: 'field grow', style: 'min-width:200px' }, 'Avance', h('div', { class: 'row', style: 'min-height:44px' }, h('div', { class: 'bar grow' + (done === c.modules.length && done ? ' ok' : '') }, h('i', { style: `width:${c.modules.length ? Math.round(done / c.modules.length * 100) : 0}%` })), h('span', { class: 'small' }, `${done}/${c.modules.length}`)))),
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn primary', onclick: () => openImport({ courseId: c.id }) }, icon('upload'), 'Importar aquí'),
-      h('button', { class: 'btn', onclick: () => { const m = newModule('Nuevo módulo'); c.modules.push(m); save(); go(`#/mod/${c.id}/${m.id}/apuntes`); } }, icon('plus'), 'Módulo vacío'),
-      pending.length > 0 && h('button', { class: 'btn', onclick: () => processMany(c, pending) }, icon('spark'), `Ordenar ${pending.length} con IA`)),
-    c.modules.length ? h('div', { class: 'list' }, c.modules.map((m) => h('div', { class: 'item' + (m.done ? ' done' : '') },
-      h('button', { class: 'check-mark', 'aria-label': m.done ? 'Marcar como pendiente' : 'Marcar como terminado', 'aria-pressed': m.done, onclick: () => { m.done = !m.done; save(); logAct(); render(); } }, m.done ? icon('check') : null),
-      h('a', { class: 'grow', href: `#/mod/${c.id}/${m.id}`, style: 'text-decoration:none;color:inherit' },
-        h('div', { class: 't' }, m.title),
-        h('div', { class: 'small muted' }, `${wordCount(m.text).toLocaleString('es')} palabras${m.processedAt ? ` · ${m.concepts.length} conceptos · ${m.questions.length} preguntas` : ' · sin ordenar'}`))))) :
-      h('div', { class: 'empty' }, h('h3', null, 'Sin módulos'), h('p', null, 'Importa un PDF o documento: cada archivo se vuelve un módulo.')),
+      h('button', { class: 'btn', onclick: () => { const m = newModule('Nuevo libro'); c.modules.push(m); save(); go(`#/mod/${c.id}/${m.id}/apuntes`); } }, icon('plus'), 'Libro vacío'),
+      pending.length > 0 && h('button', { class: 'btn', onclick: () => processMany(c, pending) }, icon('spark'), `Ficha y preguntas para ${pending.length}`)),
+    h('div', { class: 'shelf' }, c.modules.map((m) => bookLink(c, m)), addTile('Suelta PDFs o capturas', () => openImport({ courseId: c.id }))),
     h('button', { class: 'btn danger', style: 'align-self:flex-start', onclick: () => {
-      if (!confirm(`¿Eliminar "${c.name}" con sus ${c.modules.length} módulos y tarjetas? No se puede deshacer.`)) return;
-      removeCards((k) => k.cid === c.id); S.courses = S.courses.filter((x) => x !== c); save(); go('#/cursos');
+      if (!confirm(`¿Eliminar "${c.name}" con sus ${c.modules.length} libros y tarjetas? No se puede deshacer.`)) return;
+      removeCards((k) => k.cid === c.id); S.courses = S.courses.filter((x) => x !== c); save(); go('#/hoy');
     } }, icon('trash'), 'Eliminar curso'));
 }
 
@@ -332,6 +356,7 @@ function openImport({ courseId, modId } = {}) {
   const split = h('select', { 'aria-label': 'Dividir PDFs largos' },
     h('option', { value: 'auto' }, 'Automático (cada 12 págs. si pasa de 30)'), h('option', { value: '0' }, 'No dividir'), h('option', { value: '8' }, 'Cada 8 páginas'), h('option', { value: '20' }, 'Cada 20 páginas'));
   const proc = h('input', { type: 'checkbox', checked: true });
+  const bookChk = h('input', { type: 'checkbox', checked: true });
 
   const go_ = async () => {
     const text = paste.value.trim();
@@ -387,11 +412,13 @@ function openImport({ courseId, modId } = {}) {
     if (errors.length) openModal('Avisos de la importación', h('div', { class: 'stack' }, ...errors.map((e) => h('p', { class: 'small' }, e)), h('button', { class: 'btn primary', onclick: closeModal }, 'Entendido')));
     if (!created.length) { render(); return; }
     toast(`Importado: ${plural(created.length, 'módulo', 'módulos')}`);
-    if (proc.checked && !modId) {
-      if (ollama.ready() || (await ollama.refresh()).ok) await processMany(course, created);
-      else toast('Importado. Conecta Ollama para ordenarlo con IA.');
+    if ((bookChk.checked || proc.checked) && !modId) {
+      if (ollama.ready() || (await ollama.refresh()).ok) {
+        if (bookChk.checked) await bookMany(created, { style: 'explained', lang: 'es' }, course);
+        if (proc.checked) await processMany(course, created);
+      } else toast('Importado. Conecta Ollama para convertirlo en libro con IA.');
     }
-    go(modId ? `#/mod/${findCourseOf(modId)}/${modId}/apuntes` : `#/curso/${course.id}`);
+    go(modId ? `#/mod/${findCourseOf(modId)}/${modId}/apuntes` : created.length === 1 ? `#/mod/${course.id}/${created[0].id}` : `#/curso/${course.id}`);
     render();
   };
 
@@ -399,7 +426,8 @@ function openImport({ courseId, modId } = {}) {
     drop, fileIn, list, title.field, h('label', { class: 'field' }, 'Texto', paste),
     !modId && h('label', { class: 'field' }, 'Guardar en', sel), !modId && newName.field,
     !modId && h('label', { class: 'field' }, 'PDFs largos', split),
-    !modId && h('label', { class: 'check' }, proc, 'Ordenar con IA al terminar'),
+    !modId && h('label', { class: 'check' }, bookChk, 'Convertir en libro con IA (para leer)'),
+    !modId && h('label', { class: 'check' }, proc, 'Crear ficha, glosario y preguntas con IA'),
     h('button', { class: 'btn primary block', onclick: go_ }, 'Importar')));
 }
 
@@ -407,17 +435,72 @@ const findCourseOf = (mid) => S.courses.find((c) => c.modules.some((m) => m.id =
 
 /* ───────── Módulo ───────── */
 
-const TABS = [['ficha', 'Ficha'], ['apuntes', 'Apuntes'], ['conceptos', 'Conceptos'], ['quiz', 'Quiz'], ['feynman', 'Feynman'], ['proyecto', 'Proyecto']];
+/* ───────── Libro ───────── */
+
+async function bookMany(mods, opts, course) {
+  if (!(await needAI())) return false;
+  const r = await runAI(() => withBusy('Escribiendo tu libro con IA', async (set, signal) => {
+    for (let i = 0; i < mods.length; i++) {
+      await makeBook(mods[i], { ...opts, signal, onProgress: (msg, p) => set(`${mods.length > 1 ? mods[i].title + ' · ' : ''}${msg}`, (i + p) / mods.length) });
+    }
+    return true;
+  }));
+  if (r) toast(mods.length > 1 ? `${mods.length} libros listos` : 'Tu libro está listo');
+  return !!r;
+}
+
+function openBookDialog(c, m) {
+  const style = h('select', { 'aria-label': 'Estilo del libro' },
+    h('option', { value: 'explained' }, 'Explicado: capítulos, ejemplos e ideas clave (recomendado)'),
+    h('option', { value: 'faithful' }, 'Fiel: solo ordenar y redactar lo que dicen mis apuntes'));
+  const lang = h('select', { 'aria-label': 'Idioma' }, h('option', { value: 'es' }, 'En español (términos técnicos en inglés)'), h('option', { value: 'orig' }, 'En el idioma original'));
+  openModal('Crear libro con IA', h('div', { class: 'stack' },
+    h('p', { class: 'small muted' }, `Tu Ollama (${S.settings.model || 'sin modelo'}) lee los apuntes por partes y escribe portada, introducción, capítulos y cierre. Con un modelo de 2 GB tarda cerca de 15–30 s por capítulo. Puedes cancelar.`),
+    h('label', { class: 'field' }, 'Estilo', style), h('label', { class: 'field' }, 'Idioma', lang),
+    h('button', { class: 'btn primary block', onclick: async () => { closeModal(); if (await bookMany([m], { style: style.value, lang: lang.value }, c)) { go(`#/mod/${c.id}/${m.id}/libro`); render(); } } }, icon('book'), 'Crear libro')));
+}
+
+function tabLibro(c, m) {
+  if (!m.book) {
+    return h('div', { class: 'stack' },
+      h('div', { class: 'card stack' },
+        h('h3', null, 'Conviértelo en un libro'),
+        h('p', { class: 'muted small' }, 'La IA de tu Ollama reescribe tus apuntes o capturas como un libro de verdad: portada, introducción, capítulos explicados paso a paso con su idea clave, y un cierre. Después lo lees a pantalla completa.'),
+        h('button', { class: 'btn primary', disabled: !m.text, onclick: () => openBookDialog(c, m) }, icon('book'), 'Crear libro con IA')),
+      m.text && h('button', { class: 'btn', onclick: () => openReader(m) }, 'Leer el texto en pantalla completa'));
+  }
+  const b = m.book, d = docFromBook(m);
+  return h('div', { class: 'stack' },
+    h('button', { class: 'btn primary block', onclick: () => openReader(m, 'libro') }, icon('book'), 'Leer como libro en pantalla completa'),
+    b.truncated > 0 && h('div', { class: 'callout small' }, `El texto era largo: se escribieron los primeros ${b.chapters.length} capítulos de ${b.truncated} partes. Divide el documento en módulos más cortos para cubrirlo todo.`),
+    b.fallbacks > 0 && h('div', { class: 'callout small' }, `${plural(b.fallbacks, 'capítulo conserva', 'capítulos conservan')} el texto original porque la IA no logró reescribirlo bien. Prueba "Volver a escribir".`),
+    h('div', { class: 'sheet-card book-preview' }, h('div', { class: 'reader-doc book' }, d.nodes)),
+    h('div', { class: 'row wrap' },
+      h('button', { class: 'btn', onclick: () => copy(bookMarkdown(m)) }, 'Copiar libro'),
+      h('button', { class: 'btn', onclick: () => download(m.title.replace(/[\\/:*?"<>|]+/g, '-') + ' (libro).md', bookMarkdown(m), 'text/markdown') }, icon('download'), 'Descargar .md'),
+      h('button', { class: 'btn', onclick: () => openBookDialog(c, m) }, icon('refresh'), 'Volver a escribir')),
+    h('p', { class: 'small muted' }, `Escrito el ${fmtDate(b.at)} con ${S.settings.model || 'IA local'} · ${plural(b.chapters.length, 'capítulo', 'capítulos')}`));
+}
+
+const TABS = [['libro', 'Libro'], ['ficha', 'Ficha'], ['apuntes', 'Apuntes'], ['conceptos', 'Conceptos'], ['quiz', 'Quiz'], ['feynman', 'Feynman'], ['proyecto', 'Proyecto']];
 const quizState = {};
 
 function viewMod(cid, mid, tab) {
   const c = findCourse(cid), m = findMod(cid, mid);
   if (!m) return h('div', { class: 'empty' }, h('h3', null, 'Módulo no encontrado'), h('a', { href: '#/cursos' }, 'Volver a cursos'));
-  tab ||= m.processedAt ? 'ficha' : 'apuntes';
-  const body = { ficha: tabFicha, apuntes: tabApuntes, conceptos: tabConceptos, quiz: tabQuiz, feynman: tabFeynman, proyecto: tabProyecto }[tab] || tabFicha;
+  tab ||= m.book ? 'libro' : m.processedAt ? 'ficha' : 'apuntes';
+  const body = { libro: tabLibro, ficha: tabFicha, apuntes: tabApuntes, conceptos: tabConceptos, quiz: tabQuiz, feynman: tabFeynman, proyecto: tabProyecto }[tab] || tabFicha;
   return h('div', { class: 'stack' },
     h('a', { class: 'back', href: '#/curso/' + c.id }, icon('back'), c.name),
-    h('h1', null, m.title),
+    h('div', { class: 'mod-head' },
+      coverEl(m),
+      h('div', { class: 'stack grow', style: 'gap:10px' },
+        h('div', { class: 'eyebrow' }, `${kindOf(m)} · ${wordCount(m.text).toLocaleString('es')} palabras`),
+        h('h1', { style: 'font-size:34px' }, m.title),
+        h('div', { class: 'small muted' }, statusOf(m)),
+        h('div', { class: 'row wrap' },
+          h('button', { class: 'btn primary', disabled: !m.text, onclick: () => openReader(m) }, icon('book'), m.book ? 'Leer libro' : 'Leer'),
+          h('button', { class: 'btn', onclick: () => { m.done = !m.done; save(); logAct(); toast(m.done ? 'Libro terminado' : 'Marcado como pendiente'); render(); } }, icon('check'), m.done ? 'Marcar pendiente' : 'Marcar terminado')))),
     h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([k, t]) => h('a', { class: 'tab', href: `#/mod/${cid}/${mid}/${k}`, 'aria-current': k === tab ? 'page' : null }, t))),
     body(c, m));
 }
@@ -432,14 +515,20 @@ function tabFicha(c, m) {
       h('div', { class: 'card stack' },
         h('h3', null, 'Aún no está ordenado'),
         h('p', { class: 'muted small' }, m.text ? 'La IA lee tus apuntes por partes y arma un resumen, ideas clave, glosario, preguntas y tarjetas de repaso.' : 'Primero agrega apuntes en la pestaña Apuntes.'),
-        h('button', { class: 'btn primary', disabled: !m.text, onclick: orden }, icon('spark'), 'Ordenar con IA')),
+        h('div', { class: 'row wrap' }, h('button', { class: 'btn primary', disabled: !m.text, onclick: orden }, icon('spark'), 'Ordenar con IA'),
+          h('button', { class: 'btn', disabled: !m.text, onclick: () => openReader(m) }, icon('book'), 'Leer en pantalla completa'))),
       idx.length > 0 && h('div', { class: 'card stack', style: 'gap:8px' }, h('div', { class: 'eyebrow' }, 'Índice detectado (sin IA)'), h('ol', { style: 'margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px' }, idx.slice(0, 40).map((s) => h('li', null, s.heading)))));
   }
   const s = m.sheet;
   return h('div', { class: 'stack' },
-    s.summary && h('div', { class: 'card summary' }, s.summary),
+    h('button', { class: 'btn primary block', onclick: () => openReader(m) }, icon('book'), 'Leer en pantalla completa'),
     s.truncated > 0 && h('div', { class: 'callout small' }, `El texto era largo: se ordenaron las primeras ${s.sections.length} partes de ${s.truncated}. Divide el documento en módulos más cortos para cubrirlo todo.`),
-    h('div', { class: 'card sheet' }, s.sections.map((x, i) => h('div', null, h('h3', { style: i ? '' : 'margin-top:0' }, x.heading), h('ul', null, x.points.map((p) => h('li', null, p)))))),
+    (() => {
+      const d = docFromSheet(m);
+      return h('div', { class: 'stack' },
+        d.toc.length > 1 && h('div', { class: 'toc-chips' }, d.toc.map((t, i) => h('a', { href: '#', onclick: (e) => { e.preventDefault(); t.el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, h('span', { class: 'mono' }, String(i + 1).padStart(2, '0')), t.title))),
+        h('div', { class: 'sheet-card' }, h('div', { class: 'reader-doc' }, d.nodes)));
+    })(),
     h('div', { class: 'row wrap' },
       h('button', { class: 'btn', onclick: () => copy(sheetMarkdown(m)) }, 'Copiar ficha'),
       h('button', { class: 'btn', onclick: () => download(m.title.replace(/[\\/:*?"<>|]+/g, '-') + '.md', sheetMarkdown(m), 'text/markdown') }, icon('download'), 'Descargar .md'),
@@ -491,6 +580,7 @@ function tabApuntes(c, m) {
     h('label', { class: 'field' }, h('span', { class: 'row between' }, 'Texto', count), area),
     m.source && h('p', { class: 'small muted' }, `Origen: ${m.source.name}${m.source.pages ? ` · págs. ${m.source.pages[0]}–${m.source.pages[1]}` : ''}`),
     h('div', { class: 'row wrap' },
+      h('button', { class: 'btn', disabled: !m.text, onclick: () => openReader(m) }, icon('book'), 'Leer en pantalla completa'),
       h('button', { class: 'btn', onclick: () => openImport({ modId: m.id }) }, icon('upload'), 'Agregar archivo'),
       h('button', { class: m.done ? 'btn' : 'btn primary', onclick: () => { m.done = !m.done; save(); logAct(); toast(m.done ? 'Módulo terminado' : 'Marcado como pendiente'); render(); } }, icon('check'), m.done ? 'Marcar pendiente' : 'Marcar terminado')),
     h('div', { class: 'card stack' }, h('h3', null, 'Duda para el tutor'), h('div', { class: 'row' }, q, h('button', { class: 'btn primary', onclick: ask }, 'Preguntar')), ans),
@@ -639,8 +729,8 @@ function viewRepaso() {
 /* ───────── Ajustes ───────── */
 
 function viewAjustes() {
-  const url = h('input', { class: 'input mono', value: ollama.integrated.on ? 'Integrado (servidor local)' : S.settings.url, disabled: ollama.integrated.on, 'aria-label': 'Dirección de Ollama', spellcheck: 'false', autocapitalize: 'off' });
-  const connect = async () => { if (!ollama.integrated.on) { S.settings.url = url.value.trim() || 'http://localhost:11434'; save(); } await ollama.refresh(); toast(ollama.status.ok ? 'Conectado a Ollama' : ollama.status.error); render(); };
+  const url = h('input', { class: 'input mono', value: ollama.desktop.on ? 'Detectado automáticamente en este PC' : ollama.integrated.on ? 'Integrado (servidor local)' : S.settings.url, disabled: ollama.integrated.on || ollama.desktop.on, 'aria-label': 'Dirección de Ollama', spellcheck: 'false', autocapitalize: 'off' });
+  const connect = async () => { if (!ollama.integrated.on && !ollama.desktop.on) { S.settings.url = url.value.trim() || 'http://localhost:11434'; save(); } await ollama.refresh(); toast(ollama.status.ok ? 'Conectado a Ollama' : ollama.status.error); render(); };
   url.addEventListener('change', connect);
   const models = ollama.status.models;
   const model = h('select', { 'aria-label': 'Modelo', disabled: !models.length }, models.length ? models.map((x) => h('option', { value: x.name, selected: x.name === S.settings.model }, `${x.name} · ${bytes(x.size)}`)) : [h('option', null, 'Sin modelos (conecta Ollama)')]);
@@ -722,6 +812,7 @@ function showUpdate(v) {
 
 async function applyUpdate() {
   await flush();
+  if (window.sbcNative) { window.sbcNative.reload(); return; }
   const reg = await navigator.serviceWorker?.getRegistration();
   try { await reg?.update(); } catch { /* sin red */ }
   if (reg?.waiting) { reg.waiting.postMessage('SKIP_WAITING'); setTimeout(() => location.reload(), 1500); }
@@ -751,6 +842,7 @@ async function setupSW() {
     fetch('version.json').then((r) => r.json()).then((v) => toast(`Actualizada a v${APP_VERSION}${v.notes?.[0] ? ': ' + v.notes[0] : ''}`)).catch(() => toast('Actualizada a v' + APP_VERSION));
   }
   S.meta.seenVersion = APP_VERSION; save();
+  window.sbcNative?.onUpdate((v) => showUpdate({ version: v }));
   await ollama.detectIntegrated();
   await ollama.refresh();
   await detectLocalApp();

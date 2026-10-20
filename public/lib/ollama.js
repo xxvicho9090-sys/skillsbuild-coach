@@ -2,7 +2,9 @@
 // (Ollama lee el cuerpo como JSON igualmente).
 import { S, save } from './store.js';
 
-export const status = { checked: false, ok: false, kind: '', models: [], error: '' };
+export const status = { checked: false, ok: false, kind: '', models: [], error: '', installed: true };
+// App de escritorio (Electron): detecta e inicia Ollama sola; su origen app:// ya está permitido por Ollama.
+export const desktop = { on: typeof window !== 'undefined' && !!window.sbcNative };
 export const PREFERRED = ['qwen2.5:3b', 'llama3.2:3b', 'qwen2.5:1.5b', 'gemma2:2b', 'llama3.2:1b', 'phi3:mini'];
 
 export class OllamaError extends Error {
@@ -41,7 +43,7 @@ async function failure(res) {
   return new OllamaError('http', msg || `Ollama respondió ${res.status}.`);
 }
 
-export async function refresh() {
+export async function refresh(retried = false) {
   try {
     const res = await http('/api/tags', { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw await failure(res);
@@ -54,6 +56,13 @@ export async function refresh() {
       save();
     }
   } catch (e) {
+    if (desktop.on && !retried && ['down', 'origin', 'http'].includes(e.kind || 'down')) {
+      try {
+        const r = await window.sbcNative.ensureOllama();
+        status.installed = r.installed;
+        if (r.running) return refresh(true);
+      } catch { /* sigue como sin conexión */ }
+    }
     Object.assign(status, { checked: true, ok: false, kind: e.kind || 'down', models: [], error: e.message });
   }
   return status;

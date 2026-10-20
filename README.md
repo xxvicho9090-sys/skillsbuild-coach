@@ -11,7 +11,15 @@ PWA para estudiar cursos (pensada para IBM SkillsBuild): **ordena tus apuntes, P
 - **Instalable** (PWA), funciona sin conexión y **se actualiza sola**: avisa "Hay una versión nueva" y se recarga con un toque.
 - Copia de seguridad en JSON (Ajustes).
 
-## Modo local integrado (recomendado)
+## App de escritorio (Windows) · Ollama integrado
+
+Descarga `SkillsBuild-Coach-win-x64.zip` desde [Releases](https://github.com/xxvicho9090-sys/skillsbuild-coach/releases/latest), descomprímelo y abre **SkillsBuild Coach.exe**. Es esta misma app en su propia ventana:
+
+- **Detecta tu Ollama sola** y lo inicia si está instalado pero apagado. Sin servidor, sin puertos y sin `OLLAMA_ORIGINS`: la ventana usa el origen `app://sbc`, que Ollama acepta por defecto.
+- Funciona sin conexión y **se actualiza sola**: baja los archivos nuevos de la web publicada (`files.json`) y avisa para recargar.
+- Código en `desktop/` (Electron). Para generarla: `cd desktop && npm install && npm run pack`.
+
+## Modo local con navegador (alternativa)
 
 Haz doble clic en **`Iniciar-Coach.vbs`** (sin ventana) o **`Iniciar-Coach.bat`** (con ventana). Eso:
 
@@ -50,7 +58,7 @@ Sin build: HTML + JS (módulos ES) en `public/`. Las librerías (pdf.js, mammoth
 ## Publicar una versión nueva
 
 ```bash
-node scripts/release.mjs 1.1.0 "Qué cambió"
+node scripts/release.mjs 1.1.0 "Qué cambió"   # también regenera public/files.json
 git add -A && git commit -m "v1.1.0" && git push
 ```
 
